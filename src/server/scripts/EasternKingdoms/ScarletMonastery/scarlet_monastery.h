@@ -21,7 +21,7 @@
 #define SMScriptName "instance_scarlet_monastery"
 #define DataHeader "SM"
 
-uint32 const EncounterCount = 10;
+uint32 const EncounterCount = 9;
 
 enum DataTypes
 {
