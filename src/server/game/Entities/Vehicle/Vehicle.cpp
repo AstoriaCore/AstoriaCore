@@ -823,6 +823,9 @@ bool VehicleJoinEvent::Execute(uint64, uint32)
     init.SetTransportEnter();
     init.Launch();
 
+    for (auto const& [guid, threatRef] : Passenger->GetThreatManager().GetThreatenedByMeList())
+        threatRef->GetOwner()->GetThreatManager().AddThreat(Target->GetBase(), threatRef->GetThreat(), nullptr, true, true);
+
     if (Creature* creature = Target->GetBase()->ToCreature())
     {
         if (creature->IsAIEnabled)
