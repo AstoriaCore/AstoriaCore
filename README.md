@@ -10,10 +10,10 @@
     Community driven Classless MMO Framework. Proudly 
   founded by Lushen and based on WaloriaCore(TC) :smile:
     <br />
-    <a href="#"><strong>Explore the docs (AstoriaCore) »</strong></a>
+    <a href="https://github.com/AstoriaCore/AstoriaCore/tree/master/tutorials"><strong>Explore the docs (AstoriaCore) »</strong></a>
     <br />
     <br />
-    <a href="#">Report Bug</a>
+    <a href="https://github.com/AstoriaCore/AstoriaCore/issues/new/choose">Report Bug</a>
     ·
 	<a href="#">Known Bugs</a>
   </p>
@@ -23,7 +23,7 @@
 
 AstoriaCore is a customized Version of TrinityCore and the private source of WaloriaCore by Fractional aka Fred. With this project 
 we want to bring **Classless** to a new level. With many extensions, *AstoriaCore* is different from all other TrinityCore branches.
-*AstoriaCore* is the basis of the Classless Project "Project Astoria" which was managed by Lushen, Acidy and OMGhixD.
+*AstoriaCore* was the basis of the Classless Project "Project Astoria" which was managed by Lushen, Acidy and OMGhixD.
 
 ### Built With
 
@@ -44,7 +44,7 @@ You want to create your own Classless Server? No problem, just get AstoriaCore! 
 * [CMake 3.18.6](https://cmake.org/download/)
 * [GIT Extension](https://git-scm.com/downloads)
 * [MySQL Server 5.7 Community Edition](https://dev.mysql.com/downloads/mysql/5.7.html)
-* [OpenSSL 1.0.2u](https://slproweb.com/products/Win32OpenSSL.html)
+* [OpenSSL 1.0.2u](https://workupload.com/file/jAYjqcPMP3g)
 * [Boost 1.60.0 (MSVC14.0)](https://boost.teeks99.com/bin/1.60.0/) 
 
 For OpenSSL install the Version you want to use depending on your System Core (x64 or x86)
@@ -59,13 +59,14 @@ This is an example of how to list things you need to use the software and how to
   
 ### Download Custom Resources (MANDATORY)
 
-* Database, Patch & LUA Scripts -> ########
+* Patches & LUA Scripts -> https://gofile.io/d/85F5Bs
+* Maps/DBC/vMaps/MMaps -> https://gofile.io/d/S7UM96
 
-Password: `AC2021`
+`On Popular demand: We are no longer using Mega.nz to Host the Files!`
 
 ### Installation
 
-Follow the [AstoriaCore](https://www.azerothcore.org/wiki/Installation) Installation Documentation, to learn how to Compile and Build the Source.
+Follow the [AstoriaCore](https://github.com/AstoriaCore/AstoriaCore/tree/master/tutorials) Installation Documentation, to learn how to Compile and Build the Source.
 
 
 ## License
@@ -87,6 +88,6 @@ at any time who do not follow our guidelines or misuse code.
 
 ## Credits
 
-* [AzerothCore Team](https://www.azerothcore.org/)
+* [WaloriaCore Team](https://www.ac-web.org/forums/member.php?215701-Fractional)
 * [TrinityCore Team](https://www.trinitycore.org/)
 * [AstoriaCore Team](https://discord.gg/wvDYdqX)
