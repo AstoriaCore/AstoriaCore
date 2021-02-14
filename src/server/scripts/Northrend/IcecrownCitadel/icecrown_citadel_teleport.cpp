@@ -22,6 +22,7 @@
 #include "ScriptMgr.h"
 #include "Spell.h"
 #include "icecrown_citadel.h"
+#include "Teleport.h"
 
 static std::vector<uint32> const TeleportSpells =
 {
