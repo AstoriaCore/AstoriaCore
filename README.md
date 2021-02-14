@@ -25,6 +25,20 @@ AstoriaCore is a customized Version of TrinityCore and the private source of Wal
 we want to bring **Classless** to a new level. With many extensions, *AstoriaCore* is different from all other TrinityCore branches.
 *AstoriaCore* was the basis of the Classless Project "Project Astoria" which was managed by Lushen, Acidy and OMGhixD.
 
+## Exentions
+
+*AstoriaCore* includes some systems developed exclusively for *AstoriaCore*.
+
+- High Risk System(C++/LUA/SQL) | Equipment/Bag Drops on Death via a Chest
+- Prestige/Honor System(LUA/SQL/C++) | Level up your Prestige via Honorable PvP Kills
+- Classless System(SQL/LUA) | Build your own Class out of all Spells/Talents Ingame
+- Transmogrification(C++/SQL/LUA) | Transmog System by Rochet2
+- Book of Ancient Knowledge(C++/SQL) | The Universal Class Trainer Pet & NPC
+- NPC Rate Manager(C++/SQL) | NPC Ingame for setting Personal XP Rates
+- GM Command Logger(Python/C++) | A System coded by ZIN for the Head Staff to control GM Commands
+- Racial Picking System(SQL/C++) | Switch your Racials at the Souldealer NPC
+- XP for Gathering Ores and Herbs(C++) | Gather Herbs & Ores and gain XP (Like in Cata)
+
 ### Built With
 
 AstoriaCore (and its Scripts/Modules) is built with
