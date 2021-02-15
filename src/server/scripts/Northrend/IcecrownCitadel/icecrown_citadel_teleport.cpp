@@ -22,7 +22,6 @@
 #include "ScriptMgr.h"
 #include "Spell.h"
 #include "icecrown_citadel.h"
-#include "Teleport.h"
 
 static std::vector<uint32> const TeleportSpells =
 {
@@ -65,10 +64,6 @@ class icecrown_citadel_teleport : public GameObjectScript
                     return true;
                 }
 				
-				// If the player is on the ship, Unit::NearTeleport() will try to keep the player on the ship, causing issues.
-                // For that we simply always remove the player from the ship.
-                if (Transport* transport = player->GetTransport())
-                    transport->RemovePassenger(player);
 
                 player->CastSpell(player, spell, true);
                 return true;
