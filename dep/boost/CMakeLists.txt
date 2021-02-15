@@ -8,6 +8,9 @@
 # WITHOUT ANY WARRANTY, to the extent permitted by law; without even the
 # implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
+# IMPORTANT: The AstoriaCore is only able to get compiled with Boost 1.60.0 as of 14.02.2021!
+# Be sure to use this Version of Boost, no higher or lower Version! // Lushen
+
 if(WIN32)
  set(BOOST_DEBUG ON)
   if(DEFINED ENV{BOOST_ROOT})
