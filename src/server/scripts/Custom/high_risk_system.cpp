@@ -10,30 +10,32 @@
 #define SPELL_SICKNESS 15007
 #define GOB_CHEST 179697
 
-void ReskillCheck(Player* killer, Player* killed)
+bool isLootable(Player* killer, Player* killed)
 {
 	// if killer have same ip as killed or if player kill self dont spawn chest
 	if (killer->GetSession()->GetRemoteAddress() == killed->GetSession()->GetRemoteAddress() || killer->GetGUID() == killed->GetGUID())
-		return;
+		return false;
 
 	// if player have sickness, dont drop loot
 	if (killed->HasAura(SPELL_SICKNESS))
-		return;
+		return false;
 
 	// if player is above 5 levels or more, dont drop loot
 	if (killer->getLevel() - 5 >= killed->getLevel())
-		return;
+		return false;
 
 	// dont drop if player is killed in arena or battleground
 	if (killed->GetMap()->IsBattlegroundOrArena())
-		return;
+		return false;
 
 	// if player is in sanctuary zone dont drop loot
 	AreaTableEntry const* area = sAreaTableStore.LookupEntry(killed->GetAreaId());
 	AreaTableEntry const* area2 = sAreaTableStore.LookupEntry(killer->GetAreaId());
 
 	if (area->IsSanctuary() || area2->IsSanctuary())
-		return;
+		return false;
+
+	return true;
 }
 
 class HighRiskSystem : public PlayerScript
@@ -43,7 +45,8 @@ public:
 
 	void OnPVPKill(Player* killer, Player* killed)
 	{
-		ReskillCheck(killer, killed);
+		if (!isLootable(killer, killed))
+			return;
 
 		if (!killed->IsAlive())
 		{
