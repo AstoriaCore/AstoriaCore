@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,8 +23,11 @@ SDCategory: Coilfang Resevoir, Serpent Shrine Cavern
 EndScriptData */
 
 #include "ScriptMgr.h"
+#include "InstanceScript.h"
+#include "Map.h"
 #include "ScriptedCreature.h"
 #include "serpent_shrine.h"
+#include "TemporarySummon.h"
 
 enum Yells
 {
@@ -91,7 +93,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_morogrim_tidewalkerAI>(creature);
+        return GetSerpentshrineCavernAI<boss_morogrim_tidewalkerAI>(creature);
     }
 
     struct boss_morogrim_tidewalkerAI : public ScriptedAI
@@ -158,7 +160,7 @@ public:
             instance->SetData(DATA_MOROGRIMTIDEWALKEREVENT, DONE);
         }
 
-        void EnterCombat(Unit* /*who*/) override
+        void JustEngagedWith(Unit* /*who*/) override
         {
             Playercount = me->GetMap()->GetPlayers().getSize();
             StartEvent();
@@ -196,8 +198,8 @@ public:
 
                     for (uint8 i = 0; i < 10; ++i)
                     {
-                        if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0))
-                            if (Creature* Murloc = me->SummonCreature(NPC_TIDEWALKER_LURKER, MurlocCords[i][0], MurlocCords[i][1], MurlocCords[i][2], MurlocCords[i][3], TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 10000))
+                        if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0))
+                            if (Creature* Murloc = me->SummonCreature(NPC_TIDEWALKER_LURKER, MurlocCords[i][0], MurlocCords[i][1], MurlocCords[i][2], MurlocCords[i][3], TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 10s))
                                 Murloc->AI()->AttackStart(target);
                     }
                     Talk(EMOTE_EARTHQUAKE);
@@ -220,14 +222,14 @@ public:
                 {
                     //Teleport 4 players under the waterfalls
                     GuidSet targets;
-                    GuidSet::const_iterator itr;
+                    GuidSet::const_iterator itr = targets.begin();
                     for (uint8 i = 0; i < 4; ++i)
                     {
                         counter = 0;
                         Unit* target;
                         do
                         {
-                            target = SelectTarget(SELECT_TARGET_RANDOM, 1, 50, true);    //target players only
+                            target = SelectTarget(SelectTargetMethod::Random, 1, 50, true);    //target players only
                             if (counter < Playercount)
                                 break;
                             if (target)
@@ -258,20 +260,21 @@ public:
                 if (WateryGlobules_Timer <= diff)
                 {
                     GuidSet globules;
-                    GuidSet::const_iterator itr;
+                    GuidSet::const_iterator itr = globules.begin();
                     for (uint8 g = 0; g < 4; g++)  //one unit can't cast more than one spell per update, so some players have to cast for us XD
                     {
                         counter = 0;
                         Unit* pGlobuleTarget;
                         do
                         {
-                            pGlobuleTarget = SelectTarget(SELECT_TARGET_RANDOM, 0, 50, true);
+                            pGlobuleTarget = SelectTarget(SelectTargetMethod::Random, 0, 50, true);
                             if (pGlobuleTarget)
                                 itr = globules.find(pGlobuleTarget->GetGUID());
                             if (counter > Playercount)
                                 break;
                             ++counter;
                         } while (itr != globules.end());
+
                         if (pGlobuleTarget)
                         {
                             globules.insert(pGlobuleTarget->GetGUID());
@@ -296,7 +299,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return new npc_water_globuleAI(creature);
+        return GetSerpentshrineCavernAI<npc_water_globuleAI>(creature);
     }
 
     struct npc_water_globuleAI : public ScriptedAI
@@ -317,12 +320,10 @@ public:
         {
             Initialize();
 
-            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
-            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
-            me->setFaction(14);
+            me->SetFaction(FACTION_MONSTER);
         }
 
-        void EnterCombat(Unit* /*who*/) override { }
+        void JustEngagedWith(Unit* /*who*/) override { }
 
         void MoveInLineOfSight(Unit* who) override
 

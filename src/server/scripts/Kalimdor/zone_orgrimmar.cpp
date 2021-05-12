@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -29,12 +28,14 @@ npc_thrall_warchief
 EndContentData */
 
 #include "ScriptMgr.h"
+#include "CellImpl.h"
+#include "GridNotifiersImpl.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
 #include "ScriptedCreature.h"
 #include "ScriptedGossip.h"
-#include "Player.h"
-#include "Cell.h"
-#include "CellImpl.h"
-#include "GridNotifiers.h"
+#include "TemporarySummon.h"
 
 /*######
 ## npc_shenthul
@@ -49,21 +50,6 @@ class npc_shenthul : public CreatureScript
 {
 public:
     npc_shenthul() : CreatureScript("npc_shenthul") { }
-
-    bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest) override
-    {
-        if (quest->GetQuestId() == QUEST_SHATTERED_SALUTE)
-        {
-            ENSURE_AI(npc_shenthul::npc_shenthulAI, creature->AI())->CanTalk = true;
-            ENSURE_AI(npc_shenthul::npc_shenthulAI, creature->AI())->PlayerGUID = player->GetGUID();
-        }
-        return true;
-    }
-
-    CreatureAI* GetAI(Creature* creature) const override
-    {
-        return new npc_shenthulAI(creature);
-    }
 
     struct npc_shenthulAI : public ScriptedAI
     {
@@ -92,7 +78,7 @@ public:
             Initialize();
         }
 
-        void EnterCombat(Unit* /*who*/) override { }
+        void JustEngagedWith(Unit* /*who*/) override { }
 
         void UpdateAI(uint32 diff) override
         {
@@ -136,8 +122,21 @@ public:
                 }
             }
         }
+
+        void OnQuestAccept(Player* player, Quest const* quest) override
+        {
+            if (quest->GetQuestId() == QUEST_SHATTERED_SALUTE)
+            {
+                CanTalk = true;
+                PlayerGUID = player->GetGUID();
+            }
+        }
     };
 
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_shenthulAI(creature);
+    }
 };
 
 /*######
@@ -170,65 +169,16 @@ enum ThrallWarchief
     SPELL_SHOCK                 = 16034
 };
 
+enum Sounds
+{
+    SOUND_AGGRO                 = 5880
+};
+
 /// @todo verify abilities/timers
 class npc_thrall_warchief : public CreatureScript
 {
 public:
     npc_thrall_warchief() : CreatureScript("npc_thrall_warchief") { }
-
-    bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action) override
-    {
-        ClearGossipMenuFor(player);
-        switch (action)
-        {
-            case GOSSIP_ACTION_INFO_DEF+1:
-                AddGossipItemFor(player, OPTION_WHAT_DISCOVERIES, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF+2);
-                SendGossipMenuFor(player, GOSSIP_THE_SHATTERED_HAND, creature->GetGUID());
-                break;
-            case GOSSIP_ACTION_INFO_DEF+2:
-                AddGossipItemFor(player, OPTION_USURPER, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF+3);
-                SendGossipMenuFor(player, GOSSIP_IT_WOULD_APPEAR_AS, creature->GetGUID());
-                break;
-            case GOSSIP_ACTION_INFO_DEF+3:
-                AddGossipItemFor(player, OPTION_WITH_ALL_DUE_RESPECT, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF+4);
-                SendGossipMenuFor(player, GOSSIP_THE_BROOD_MOTHER, creature->GetGUID());
-                break;
-            case GOSSIP_ACTION_INFO_DEF+4:
-                AddGossipItemFor(player, OPTION_I_I_DID_NOT_THINK_OF, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF+5);
-                SendGossipMenuFor(player, GOSSIP_SO_MUCH_TO_LEARN, creature->GetGUID());
-                break;
-            case GOSSIP_ACTION_INFO_DEF+5:
-                AddGossipItemFor(player, OPTION_I_LIVE_ONLY_TO_SERVE, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF+6);
-                SendGossipMenuFor(player, GOSSIP_I_DO_NOT_FAULT_YOU, creature->GetGUID());
-                break;
-            case GOSSIP_ACTION_INFO_DEF+6:
-                AddGossipItemFor(player, OPTION_OF_COURSE_WARCHIEF, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF+7);
-                SendGossipMenuFor(player, GOSSIP_NOW_PAY_ATTENTION, creature->GetGUID());
-                break;
-            case GOSSIP_ACTION_INFO_DEF+7:
-                CloseGossipMenuFor(player);
-                player->AreaExploredOrEventHappens(QUEST_WHAT_THE_WIND_CARRIES);
-                break;
-        }
-        return true;
-    }
-
-    bool OnGossipHello(Player* player, Creature* creature) override
-    {
-        if (creature->IsQuestGiver())
-            player->PrepareQuestMenu(creature->GetGUID());
-
-        if (player->GetQuestStatus(QUEST_WHAT_THE_WIND_CARRIES) == QUEST_STATUS_INCOMPLETE)
-            AddGossipItemFor(player, OPTION_PLEASE_SHARE_YOUR, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF+1);
-
-        SendGossipMenuFor(player, GOSSIP_MEMBERS_OF_THE_HORDE, creature->GetGUID());
-        return true;
-    }
-
-    CreatureAI* GetAI(Creature* creature) const override
-    {
-        return new npc_thrall_warchiefAI(creature);
-    }
 
     struct npc_thrall_warchiefAI : public ScriptedAI
     {
@@ -251,7 +201,10 @@ public:
             Initialize();
         }
 
-        void EnterCombat(Unit* /*who*/) override { }
+        void JustEngagedWith(Unit* /*who*/) override
+        {
+            DoPlaySoundToSet(me, SOUND_AGGRO);
+        }
 
         void UpdateAI(uint32 diff) override
         {
@@ -272,8 +225,62 @@ public:
 
             DoMeleeAttackIfReady();
         }
+
+        bool OnGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
+        {
+            uint32 const action = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);
+            ClearGossipMenuFor(player);
+            switch (action)
+            {
+                case GOSSIP_ACTION_INFO_DEF + 1:
+                    AddGossipItemFor(player, OPTION_WHAT_DISCOVERIES, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 2);
+                    SendGossipMenuFor(player, GOSSIP_THE_SHATTERED_HAND, me->GetGUID());
+                    break;
+                case GOSSIP_ACTION_INFO_DEF + 2:
+                    AddGossipItemFor(player, OPTION_USURPER, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 3);
+                    SendGossipMenuFor(player, GOSSIP_IT_WOULD_APPEAR_AS, me->GetGUID());
+                    break;
+                case GOSSIP_ACTION_INFO_DEF + 3:
+                    AddGossipItemFor(player, OPTION_WITH_ALL_DUE_RESPECT, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 4);
+                    SendGossipMenuFor(player, GOSSIP_THE_BROOD_MOTHER, me->GetGUID());
+                    break;
+                case GOSSIP_ACTION_INFO_DEF + 4:
+                    AddGossipItemFor(player, OPTION_I_I_DID_NOT_THINK_OF, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 5);
+                    SendGossipMenuFor(player, GOSSIP_SO_MUCH_TO_LEARN, me->GetGUID());
+                    break;
+                case GOSSIP_ACTION_INFO_DEF + 5:
+                    AddGossipItemFor(player, OPTION_I_LIVE_ONLY_TO_SERVE, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 6);
+                    SendGossipMenuFor(player, GOSSIP_I_DO_NOT_FAULT_YOU, me->GetGUID());
+                    break;
+                case GOSSIP_ACTION_INFO_DEF + 6:
+                    AddGossipItemFor(player, OPTION_OF_COURSE_WARCHIEF, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 7);
+                    SendGossipMenuFor(player, GOSSIP_NOW_PAY_ATTENTION, me->GetGUID());
+                    break;
+                case GOSSIP_ACTION_INFO_DEF + 7:
+                    CloseGossipMenuFor(player);
+                    player->AreaExploredOrEventHappens(QUEST_WHAT_THE_WIND_CARRIES);
+                    break;
+            }
+            return true;
+        }
+
+        bool OnGossipHello(Player* player) override
+        {
+            if (me->IsQuestGiver())
+                player->PrepareQuestMenu(me->GetGUID());
+
+            if (player->GetQuestStatus(QUEST_WHAT_THE_WIND_CARRIES) == QUEST_STATUS_INCOMPLETE)
+                AddGossipItemFor(player, OPTION_PLEASE_SHARE_YOUR, GOSSIP_MENU_OPTION_ID_ALL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 1);
+
+            SendGossipMenuFor(player, GOSSIP_MEMBERS_OF_THE_HORDE, me->GetGUID());
+            return true;
+        }
     };
 
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_thrall_warchiefAI(creature);
+    }
 };
 
 /* --------- Herald of War ------------- */
@@ -346,7 +353,7 @@ public:
             if (who->GetTypeId() == TYPEID_PLAYER && who->IsWithinDist(me, 20.0f) && !inProgress)
             {
                 inProgress = true;
-                events.ScheduleEvent(EVENT_SCENE_1, 2000);
+                events.ScheduleEvent(EVENT_SCENE_1, 2s);
             }
         }
 
@@ -366,63 +373,63 @@ public:
                             me->SetFacingToObject(gryshka);
                             gryshka->AI()->Talk(SAY_GRYSHKA_1);
                         }
-                        events.ScheduleEvent(EVENT_SCENE_2, 4500);
+                        events.ScheduleEvent(EVENT_SCENE_2, 4500ms);
                         break;
                     case EVENT_SCENE_2:
                         if (Creature* olvia = ObjectAccessor::GetCreature(*me, olviaGUID))
                             olvia->AI()->Talk(SAY_OLVIA_1);
-                        events.ScheduleEvent(EVENT_SCENE_3, 4500);
+                        events.ScheduleEvent(EVENT_SCENE_3, 4500ms);
                         break;
                     case EVENT_SCENE_3:
                         if (Creature* felika = ObjectAccessor::GetCreature(*me, felikaGUID))
                             felika->AI()->Talk(SAY_FELIKA_1);
-                        events.ScheduleEvent(EVENT_SCENE_4, 4500);
+                        events.ScheduleEvent(EVENT_SCENE_4, 4500ms);
                         break;
                     case EVENT_SCENE_4:
                         if (Creature* thathung = ObjectAccessor::GetCreature(*me, thungGUID))
                             thathung->AI()->Talk(SAY_THATHUNG);
-                        events.ScheduleEvent(EVENT_SCENE_5, 4500);
+                        events.ScheduleEvent(EVENT_SCENE_5, 4500ms);
                         break;
                     case EVENT_SCENE_5:
                         if (Creature* sana = ObjectAccessor::GetCreature(*me, sanaGUID))
                             sana->AI()->Talk(SAY_SANA);
-                        events.ScheduleEvent(EVENT_SCENE_6, 4500);
+                        events.ScheduleEvent(EVENT_SCENE_6, 4500ms);
                         break;
                     case EVENT_SCENE_6:
                         if (Creature* gryshka = ObjectAccessor::GetCreature(*me, gryshkaGUID))
                             gryshka->AI()->Talk(SAY_GRYSHKA_2);
-                        events.ScheduleEvent(EVENT_SCENE_7, 4500);
+                        events.ScheduleEvent(EVENT_SCENE_7, 4500ms);
                         break;
                     case EVENT_SCENE_7:
                         if (Creature* kaja = ObjectAccessor::GetCreature(*me, kajaGUID))
                             kaja->AI()->Talk(SAY_KAJA);
-                        events.ScheduleEvent(EVENT_SCENE_8, 4500);
+                        events.ScheduleEvent(EVENT_SCENE_8, 4500ms);
                         break;
                     case EVENT_SCENE_8:
                         if (Creature* felika = ObjectAccessor::GetCreature(*me, felikaGUID))
                             felika->AI()->Talk(SAY_FELIKA_2);
-                        events.ScheduleEvent(EVENT_SCENE_9, 4500);
+                        events.ScheduleEvent(EVENT_SCENE_9, 4500ms);
                         break;
                     case EVENT_SCENE_9:
                         if (Creature* olvia = ObjectAccessor::GetCreature(*me, olviaGUID))
                             olvia->AI()->Talk(SAY_OLVIA_2);
-                        events.ScheduleEvent(EVENT_SCENE_10, 4500);
+                        events.ScheduleEvent(EVENT_SCENE_10, 4500ms);
                         break;
                     case EVENT_SCENE_10:
                         Talk(SAY_RUNTHAK_1);
-                        events.ScheduleEvent(EVENT_SCENE_11, 1500);
+                        events.ScheduleEvent(EVENT_SCENE_11, 1500ms);
                         break;
                     case EVENT_SCENE_11:
                         Talk(SAY_RUNTHAK_2);
-                        events.ScheduleEvent(EVENT_SCENE_12, 4500);
+                        events.ScheduleEvent(EVENT_SCENE_12, 4500ms);
                         break;
                     case EVENT_SCENE_12:
                         Talk(SAY_RUNTHAK_3);
-                        events.ScheduleEvent(EVENT_SCENE_13, 4500);
+                        events.ScheduleEvent(EVENT_SCENE_13, 4500ms);
                         break;
                     case EVENT_SCENE_13:
                         Talk(SAY_RUNTHAK_4);
-                        events.ScheduleEvent(EVENT_RESET, 25000);
+                        events.ScheduleEvent(EVENT_RESET, 25s);
                         break;
                     case EVENT_RESET:
                         Reset();
@@ -442,7 +449,7 @@ public:
                 std::list<Unit*> citizenList;
                 Trinity::AnyFriendlyUnitInObjectRangeCheck checker(me, me, 25.0f);
                 Trinity::UnitListSearcher<Trinity::AnyFriendlyUnitInObjectRangeCheck> searcher(me, citizenList, checker);
-                me->VisitNearbyObject(20.0f, searcher);
+                Cell::VisitGridObjects(me, searcher, 20.0f);
                 for (Unit* target : citizenList)
                 {
                     switch (target->GetEntry())
@@ -655,7 +662,7 @@ public:
                 if (Creature* sylvanas = me->FindNearestCreature(NPC_BANSHEE_SYLVANAS, 25.0f))
                     sylvanasGUID = sylvanas->GetGUID();
 
-                events.ScheduleEvent(EVENT_HERALD_SCENE1, 4000);
+                events.ScheduleEvent(EVENT_HERALD_SCENE1, 4s);
             }
         }
 
@@ -684,18 +691,18 @@ public:
                                 guard->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_STATE_NONE);
                             }
                         }
-                        events.ScheduleEvent(EVENT_HERALD_SCENE2, 3000);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE2, 3s);
                         break;
                     case EVENT_HERALD_SCENE2:
                         Talk(SAY_THRALL_1);
                         if (Creature* jaina = ObjectAccessor::GetCreature(*me, jainaGUID))
                             me->SetFacingToObject(jaina);
-                        events.ScheduleEvent(EVENT_HERALD_SCENE3, 3500);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE3, 3500ms);
                         break;
                     case EVENT_HERALD_SCENE3:
                         if (Creature* jaina = ObjectAccessor::GetCreature(*me, jainaGUID))
                             jaina->AI()->Talk(SAY_JAINA_0);
-                        events.ScheduleEvent(EVENT_HERALD_SCENE4, 5500);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE4, 5500ms);
                         break;
                     case EVENT_HERALD_SCENE4:
                         Talk(SAY_THRALL_2);
@@ -705,48 +712,48 @@ public:
                             sylvanas->SetWalk(true);
                             sylvanas->GetMotionMaster()->MovePoint(1, MiscMovePositions[2]);
                         }
-                        events.ScheduleEvent(EVENT_HERALD_SCENE5, 6500);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE5, 6500ms);
                         break;
                     case EVENT_HERALD_SCENE5:
                         if (Creature* sylvanas = ObjectAccessor::GetCreature(*me, sylvanasGUID))
                             sylvanas->AI()->Talk(SAY_SYLVANAS_0);
-                        events.ScheduleEvent(EVENT_HERALD_SCENE6, 10000);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE6, 10s);
                         break;
                     case EVENT_HERALD_SCENE6:
                         if (Creature* sylvanas = ObjectAccessor::GetCreature(*me, sylvanasGUID))
                             sylvanas->AI()->Talk(SAY_SYLVANAS_1);
-                        events.ScheduleEvent(EVENT_HERALD_SCENE7, 20000);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE7, 20s);
                         break;
                     case EVENT_HERALD_SCENE7:
                         Talk(SAY_THRALL_3);
-                        events.ScheduleEvent(EVENT_HERALD_SCENE8, 4500);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE8, 4500ms);
                         break;
                     case EVENT_HERALD_SCENE8:
                         Talk(SAY_THRALL_4);
-                        events.ScheduleEvent(EVENT_HERALD_SCENE9, 10000);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE9, 10s);
                         break;
                     case EVENT_HERALD_SCENE9:
                         Talk(SAY_THRALL_5);
-                        events.ScheduleEvent(EVENT_HERALD_SCENE10, 8000);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE10, 8s);
                         break;
                     case EVENT_HERALD_SCENE10:
                         Talk(SAY_THRALL_6);
-                        events.ScheduleEvent(EVENT_HERALD_SCENE11, 9000);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE11, 9s);
                         break;
                     case EVENT_HERALD_SCENE11:
                         if (Creature* jaina = ObjectAccessor::GetCreature(*me, jainaGUID))
                             jaina->AI()->Talk(SAY_JAINA_1);
-                        events.ScheduleEvent(EVENT_HERALD_SCENE12, 6000);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE12, 6s);
                         break;
                     case EVENT_HERALD_SCENE12:
                         if (Creature* jaina = ObjectAccessor::GetCreature(*me, jainaGUID))
                             jaina->AI()->Talk(SAY_JAINA_2);
-                        events.ScheduleEvent(EVENT_HERALD_SCENE13, 14000);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE13, 14s);
                         break;
                     case EVENT_HERALD_SCENE13:
                         if (Creature* jaina = ObjectAccessor::GetCreature(*me, jainaGUID))
                             jaina->AI()->Talk(SAY_JAINA_3);
-                        events.ScheduleEvent(EVENT_HERALD_SCENE14, 10000);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE14, 10s);
                         break;
                     case EVENT_HERALD_SCENE14:
                         if (Creature* jaina = ObjectAccessor::GetCreature(*me, jainaGUID))
@@ -754,9 +761,9 @@ public:
                             jaina->AI()->Talk(SAY_JAINA_4);
                             jaina->SetWalk(true);
                             jaina->GetMotionMaster()->MovePoint(2, jaina->GetHomePosition());
-                            jaina->DespawnOrUnsummon(5000);
+                            jaina->DespawnOrUnsummon(5s);
                         }
-                        events.ScheduleEvent(EVENT_HERALD_SCENE15, 7000);
+                        events.ScheduleEvent(EVENT_HERALD_SCENE15, 7s);
                         break;
                     case EVENT_HERALD_SCENE15:
                     {
@@ -773,7 +780,7 @@ public:
                         if (Creature* portal = ObjectAccessor::GetCreature(*me, stormwindPortalGUID))
                             portal->DespawnOrUnsummon();
 
-                        events.ScheduleEvent(EVENT_HERALD_RESET, 60000);
+                        events.ScheduleEvent(EVENT_HERALD_RESET, 1min);
                         break;
                     }
                     case EVENT_HERALD_RESET:

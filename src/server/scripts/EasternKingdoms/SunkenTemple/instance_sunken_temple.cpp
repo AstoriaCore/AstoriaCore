@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,7 +23,9 @@ SDCategory: Sunken Temple
 EndScriptData */
 
 #include "ScriptMgr.h"
+#include "GameObject.h"
 #include "InstanceScript.h"
+#include "Map.h"
 #include "sunken_temple.h"
 
 enum Gameobject
@@ -59,7 +60,7 @@ static Position const statuePositions[nStatues]
 class instance_sunken_temple : public InstanceMapScript
 {
 public:
-    instance_sunken_temple() : InstanceMapScript("instance_sunken_temple", 109) { }
+    instance_sunken_temple() : InstanceMapScript(STScriptName, 109) { }
 
     InstanceScript* GetInstanceScript(InstanceMap* map) const override
     {
@@ -68,7 +69,7 @@ public:
 
     struct instance_sunken_temple_InstanceMapScript : public InstanceScript
     {
-        instance_sunken_temple_InstanceMapScript(Map* map) : InstanceScript(map)
+        instance_sunken_temple_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
         {
             SetHeaders(DataHeader);
             State = 0;
@@ -176,16 +177,16 @@ public:
 
         void UseStatue(GameObject* go)
         {
-            go->SummonGameObject(GO_ATALAI_LIGHT1, *go, G3D::Quat(), 0);
+            go->SummonGameObject(GO_ATALAI_LIGHT1, *go, QuaternionData(), 0s);
             go->SetUInt32Value(GAMEOBJECT_FLAGS, 4);
         }
 
         void UseLastStatue(GameObject* go)
         {
             for (uint8 i = 0; i < nStatues; ++i)
-                go->SummonGameObject(GO_ATALAI_LIGHT2, statuePositions[i], G3D::Quat(), 0);
+                go->SummonGameObject(GO_ATALAI_LIGHT2, statuePositions[i], QuaternionData(), 0s);
 
-            go->SummonCreature(NPC_ATALALARION, atalalarianPos, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 7200);
+            go->SummonCreature(NPC_ATALALARION, atalalarianPos, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 10min);
         }
 
          void SetData(uint32 type, uint32 data) override

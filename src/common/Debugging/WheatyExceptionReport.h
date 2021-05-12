@@ -1,20 +1,22 @@
 #ifndef _WHEATYEXCEPTIONREPORT_
 #define _WHEATYEXCEPTIONREPORT_
 
-#if PLATFORM == PLATFORM_WINDOWS && !defined(__MINGW32__)
+#define _NO_CVCONST_H
 
+#include <windows.h>
 #include <winnt.h>
 #include <winternl.h>
 #include <dbghelp.h>
 #include <set>
-#include <stdlib.h>
+#include <cstdlib>
+#include <cstdio>
 #include <stack>
 #include <mutex>
-#define countof  _countof
 
 #define WER_MAX_ARRAY_ELEMENTS_COUNT 10
 #define WER_MAX_NESTING_LEVEL 4
-#define WER_LARGE_BUFFER_SIZE 1024 * 128
+#define WER_SMALL_BUFFER_SIZE 1024
+#define WER_LARGE_BUFFER_SIZE WER_SMALL_BUFFER_SIZE * 16
 
 enum BasicType                                              // Stolen from CVCONST.H in the DIA 2.0 SDK
 {
@@ -55,7 +57,7 @@ enum DataKind                                              // Stolen from CVCONS
     DataIsConstant
 };
 
-const char* const rgBaseType[] =
+char const* const rgBaseType[] =
 {
     "<user defined>",                                     // btNoType = 0,
     "void",                                               // btVoid = 1,
@@ -99,7 +101,7 @@ struct SymbolPair
         _offset = offset;
     }
 
-    bool operator<(const SymbolPair& other) const
+    bool operator<(SymbolPair const& other) const
     {
         return _offset < other._offset ||
               (_offset == other._offset && _type < other._type);
@@ -114,20 +116,7 @@ struct SymbolDetail
 {
     SymbolDetail() : Prefix(), Type(), Suffix(), Name(), Value(), Logged(false), HasChildren(false) {}
 
-    std::string ToString()
-    {
-        Logged = true;
-        std::string formatted = Prefix + Type + Suffix;
-        if (!Name.empty())
-        {
-            if (!formatted.empty())
-                formatted += " ";
-            formatted += Name;
-        }
-        if (!Value.empty())
-            formatted += " = " + Value;
-        return formatted;
-    }
+    std::string ToString();
 
     bool empty() const
     {
@@ -154,6 +143,8 @@ class WheatyExceptionReport
         static LONG WINAPI WheatyUnhandledExceptionFilter(
             PEXCEPTION_POINTERS pExceptionInfo);
 
+        static void __cdecl WheatyCrtHandler(wchar_t const* expression, wchar_t const* function, wchar_t const* file, unsigned int line, uintptr_t pReserved);
+
         static void printTracesForAllThreads(bool);
     private:
         // where report info is extracted and generated
@@ -163,7 +154,7 @@ class WheatyExceptionReport
         static BOOL _GetProcessorName(TCHAR* sProcessorName, DWORD maxcount);
 
         // Helper functions
-        static LPTSTR GetExceptionString(DWORD dwCode);
+        static LPCTSTR GetExceptionString(DWORD dwCode);
         static BOOL GetLogicalAddress(PVOID addr, PTSTR szModule, DWORD len,
             DWORD& section, DWORD_PTR& offset);
 
@@ -171,18 +162,16 @@ class WheatyExceptionReport
 
         static BOOL CALLBACK EnumerateSymbolsCallback(PSYMBOL_INFO, ULONG, PVOID);
 
-        static bool FormatSymbolValue(PSYMBOL_INFO, STACKFRAME64 *, char * pszBuffer, unsigned cbBuffer);
+        static bool FormatSymbolValue(PSYMBOL_INFO, STACKFRAME64 *);
 
-        static char * DumpTypeIndex(char *, DWORD64, DWORD, DWORD_PTR, bool &, const char*, char*, bool, bool);
+        static void DumpTypeIndex(DWORD64, DWORD, DWORD_PTR, bool &, char const*, char const*, bool, bool);
 
         static void FormatOutputValue(char * pszCurrBuffer, BasicType basicType, DWORD64 length, PVOID pAddress, size_t bufferSize, size_t countOverride = 0);
 
         static BasicType GetBasicType(DWORD typeIndex, DWORD64 modBase);
         static DWORD_PTR DereferenceUnsafePointer(DWORD_PTR address);
 
-        static int __cdecl _tprintf(const TCHAR * format, ...);
-        static int __cdecl stackprintf(const TCHAR * format, va_list argptr);
-        static int __cdecl heapprintf(const TCHAR * format, va_list argptr);
+        static int __cdecl Log(const TCHAR * format, ...);
 
         static bool StoreSymbol(DWORD type , DWORD_PTR offset);
         static void ClearSymbols();
@@ -191,24 +180,22 @@ class WheatyExceptionReport
         static TCHAR m_szLogFileName[MAX_PATH];
         static TCHAR m_szDumpFileName[MAX_PATH];
         static LPTOP_LEVEL_EXCEPTION_FILTER m_previousFilter;
-        static HANDLE m_hReportFile;
+        static _invalid_parameter_handler m_previousCrtHandler;
+        static FILE* m_hReportFile;
         static HANDLE m_hDumpFile;
         static HANDLE m_hProcess;
         static SymbolPairs symbols;
         static std::stack<SymbolDetail> symbolDetails;
-        static bool stackOverflowException;
         static bool alreadyCrashed;
         static std::mutex alreadyCrashedLock;
         typedef NTSTATUS(NTAPI* pRtlGetVersion)(PRTL_OSVERSIONINFOW lpVersionInformation);
         static pRtlGetVersion RtlGetVersion;
 
-        static char* PushSymbolDetail(char* pszCurrBuffer);
-        static char* PopSymbolDetail(char* pszCurrBuffer);
-        static char* PrintSymbolDetail(char* pszCurrBuffer);
+        static void PushSymbolDetail();
+        static void PopSymbolDetail();
+        static void PrintSymbolDetail();
 
 };
 
 extern WheatyExceptionReport g_WheatyExceptionReport;       //  global instance of class
-#endif                                                      // _WIN32
 #endif                                                      // _WHEATYEXCEPTIONREPORT_
-

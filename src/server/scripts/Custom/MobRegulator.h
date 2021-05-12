@@ -1,3 +1,6 @@
+#include "DatabaseEnv.h"
+#include "Log.h"
+
 #ifndef MOB_REGULATOR_H
 #define MOB_REGULATOR_H
 

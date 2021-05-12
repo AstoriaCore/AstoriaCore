@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -21,6 +20,10 @@
 
 #include "Common.h"
 #include "SharedDefines.h"
+#include "WorldPacket.h"
+#include <vector>
+
+class ObjectMgr;
 
 enum ItemModType
 {
@@ -253,7 +256,7 @@ enum SocketColor
 
 #define SOCKET_COLOR_ALL (SOCKET_COLOR_META | SOCKET_COLOR_RED | SOCKET_COLOR_YELLOW | SOCKET_COLOR_BLUE)
 
-enum InventoryType
+enum InventoryType : uint8
 {
     INVTYPE_NON_EQUIP                           = 0,
     INVTYPE_HEAD                                = 1,
@@ -288,7 +291,7 @@ enum InventoryType
 
 #define MAX_INVTYPE                               29
 
-enum ItemClass
+enum ItemClass : uint8
 {
     ITEM_CLASS_CONSUMABLE                       = 0,
     ITEM_CLASS_CONTAINER                        = 1,
@@ -556,45 +559,35 @@ const uint32 MaxItemSubclassValues[MAX_ITEM_CLASS] =
     MAX_ITEM_SUBCLASS_GLYPH
 };
 
-inline uint8 ItemSubClassToDurabilityMultiplierId(uint32 ItemClass, uint32 ItemSubClass)
-{
-    switch (ItemClass)
-    {
-        case ITEM_CLASS_WEAPON: return ItemSubClass;
-        case ITEM_CLASS_ARMOR:  return ItemSubClass + 21;
-    }
-    return 0;
-}
-
 #pragma pack(push, 1)
 
 struct _Damage
 {
-    float   DamageMin;
-    float   DamageMax;
-    uint32  DamageType;                                     // id from Resistances.dbc
+    float   DamageMin = 0.0f;
+    float   DamageMax = 0.0f;
+    uint32  DamageType = 0;                                 // id from Resistances.dbc
 };
 
 struct _ItemStat
 {
-    uint32  ItemStatType;
-    int32   ItemStatValue;
+    uint32  ItemStatType = 0;
+    int32   ItemStatValue = 0;
 };
 struct _Spell
 {
-    int32 SpellId;                                         // id from Spell.dbc
-    uint32 SpellTrigger;
-    int32  SpellCharges;
-    float  SpellPPMRate;
-    int32  SpellCooldown;
-    uint32 SpellCategory;                                   // id from SpellCategory.dbc
-    int32  SpellCategoryCooldown;
+    int32 SpellId = 0;                                      // id from Spell.dbc
+    uint32 SpellTrigger = 0;
+    int32  SpellCharges = 0;
+    float  SpellPPMRate = 0.0f;
+    int32  SpellCooldown = -1;
+    uint32 SpellCategory = 0;                               // id from SpellCategory.dbc
+    int32  SpellCategoryCooldown = -1;
 };
 
 struct _Socket
 {
-    uint32 Color;
-    uint32 Content;
+    uint32 Color = 0;
+    uint32 Content = 0;
 };
 
 #pragma pack(pop)
@@ -604,8 +597,10 @@ struct _Socket
 #define MAX_ITEM_PROTO_SPELLS  5
 #define MAX_ITEM_PROTO_STATS  10
 
-struct ItemTemplate
+struct TC_GAME_API ItemTemplate
 {
+    friend class ObjectMgr;
+
     uint32 ItemId;
     uint32 Class;                                           // id from ItemClass.dbc
     uint32 SubClass;                                        // id from ItemSubClass.dbc
@@ -634,10 +629,10 @@ struct ItemTemplate
     int32  Stackable;                                       // 0: not allowed, -1: put in player coin info tab and don't limit stacking (so 1 slot)
     uint32 ContainerSlots;
     uint32 StatsCount;
-    _ItemStat ItemStat[MAX_ITEM_PROTO_STATS];
+    std::array<_ItemStat, MAX_ITEM_PROTO_STATS> ItemStat;
     uint32 ScalingStatDistribution;                         // id from ScalingStatDistribution.dbc
     uint32 ScalingStatValue;                                // mask for selecting column in ScalingStatValues.dbc
-    _Damage Damage[MAX_ITEM_PROTO_DAMAGES];
+    std::array<_Damage, MAX_ITEM_PROTO_DAMAGES> Damage;
     uint32 Armor;
     uint32 HolyRes;
     uint32 FireRes;
@@ -648,7 +643,7 @@ struct ItemTemplate
     uint32 Delay;
     uint32 AmmoType;
     float  RangedModRange;
-    _Spell Spells[MAX_ITEM_PROTO_SPELLS];
+    std::array<_Spell, MAX_ITEM_PROTO_SPELLS> Spells;
     uint32 Bonding;
     std::string  Description;
     uint32 PageText;
@@ -667,7 +662,7 @@ struct ItemTemplate
     uint32 Map;                                             // id from Map.dbc
     uint32 BagFamily;                                       // bit mask (1 << id from ItemBagFamily.dbc)
     uint32 TotemCategory;                                   // id from TotemCategory.dbc
-    _Socket Socket[MAX_ITEM_PROTO_SOCKETS];
+    std::array<_Socket, MAX_ITEM_PROTO_SOCKETS> Socket;
     uint32 socketBonus;                                     // id from SpellItemEnchantment.dbc
     uint32 GemProperties;                                   // id from GemProperties.dbc
     uint32 RequiredDisenchantSkill;
@@ -681,6 +676,7 @@ struct ItemTemplate
     uint32 MinMoneyLoot;
     uint32 MaxMoneyLoot;
     uint32 FlagsCu;
+    std::array<WorldPacket, TOTAL_LOCALES> QueryData;
 
     // helpers
     bool CanChangeEquipStateInCombat() const;
@@ -695,6 +691,7 @@ struct ItemTemplate
     float getDPS() const;
 
     int32 getFeralBonus(int32 extraDPS = 0) const;
+    int32 GetTotalAPBonus() const { return _totalAP; }
 
     float GetItemLevelIncludingQuality() const;
 
@@ -703,16 +700,28 @@ struct ItemTemplate
     bool IsPotion() const { return Class == ITEM_CLASS_CONSUMABLE && SubClass == ITEM_SUBCLASS_POTION; }
     bool IsWeaponVellum() const { return Class == ITEM_CLASS_TRADE_GOODS && SubClass == ITEM_SUBCLASS_WEAPON_ENCHANTMENT; }
     bool IsArmorVellum() const { return Class == ITEM_CLASS_TRADE_GOODS && SubClass == ITEM_SUBCLASS_ARMOR_ENCHANTMENT; }
-    bool IsConjuredConsumable() const { return Class == ITEM_CLASS_CONSUMABLE && (Flags & ITEM_FLAG_CONJURED); }
-};
+    bool IsConjuredConsumable() const { return Class == ITEM_CLASS_CONSUMABLE && HasFlag(ITEM_FLAG_CONJURED); }
+    bool HasSignature() const;
 
-// Benchmarked: Faster than std::map (insert/find)
-typedef std::unordered_map<uint32, ItemTemplate> ItemTemplateContainer;
+    inline bool HasFlag(ItemFlags flag) const { return (Flags & flag) != 0; }
+    inline bool HasFlag(ItemFlags2 flag) const { return (Flags2 & flag) != 0; }
+    inline bool HasFlag(ItemFlagsCustom customFlag) const { return (FlagsCu & customFlag) != 0; }
+
+    void InitializeQueryData();
+    WorldPacket BuildQueryData(LocaleConstant loc) const;
+
+private:
+    // Cached info
+    int32 _totalAP;
+
+    // Loading Helpers
+    void _LoadTotalAP();
+};
 
 struct ItemLocale
 {
-    StringVector Name;
-    StringVector Description;
+    std::vector<std::string> Name;
+    std::vector<std::string> Description;
 };
 
 struct ItemSetNameEntry
@@ -723,7 +732,7 @@ struct ItemSetNameEntry
 
 struct ItemSetNameLocale
 {
-    StringVector Name;
+    std::vector<std::string> Name;
 };
 
 #endif

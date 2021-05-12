@@ -33,14 +33,14 @@ using namespace Hooks;
             return RETVAL;\
     LOCK_ELUNA
 
-bool Eluna::OnDummyEffect(Unit* pCaster, uint32 spellId, SpellEffIndex effIndex, Creature* pTarget)
+void Eluna::OnDummyEffect(WorldObject* pCaster, uint32 spellId, SpellEffIndex effIndex, Creature* pTarget)
 {
-    START_HOOK_WITH_RETVAL(CREATURE_EVENT_ON_DUMMY_EFFECT, pTarget, false);
+    START_HOOK(CREATURE_EVENT_ON_DUMMY_EFFECT, pTarget);
     Push(pCaster);
     Push(spellId);
     Push(effIndex);
     Push(pTarget);
-    return CallAllFunctionsBool(CreatureEventBindings, CreatureUniqueBindings, entry_key, unique_key);
+    CallAllFunctions(CreatureEventBindings, CreatureUniqueBindings, entry_key, unique_key);
 }
 
 bool Eluna::OnQuestAccept(Player* pPlayer, Creature* pCreature, Quest const* pQuest)
@@ -62,13 +62,12 @@ bool Eluna::OnQuestReward(Player* pPlayer, Creature* pCreature, Quest const* pQu
     return CallAllFunctionsBool(CreatureEventBindings, CreatureUniqueBindings, entry_key, unique_key);
 }
 
-uint32 Eluna::GetDialogStatus(Player* pPlayer, Creature* pCreature)
+void Eluna::GetDialogStatus(const Player* pPlayer, const Creature* pCreature)
 {
-    START_HOOK_WITH_RETVAL(CREATURE_EVENT_ON_DIALOG_STATUS, pCreature, DIALOG_STATUS_SCRIPTED_NO_STATUS);
+    START_HOOK(CREATURE_EVENT_ON_DIALOG_STATUS, pCreature);
     Push(pPlayer);
     Push(pCreature);
     CallAllFunctions(CreatureEventBindings, CreatureUniqueBindings, entry_key, unique_key);
-    return DIALOG_STATUS_SCRIPTED_NO_STATUS;
 }
 
 void Eluna::OnAddToWorld(Creature* pCreature)
@@ -208,15 +207,6 @@ bool Eluna::EnterEvadeMode(Creature* me)
     return CallAllFunctionsBool(CreatureEventBindings, CreatureUniqueBindings, entry_key, unique_key);
 }
 
-// Called when the creature is target of hostile action: swing, hostile spell landed, fear/etc)
-bool Eluna::AttackedBy(Creature* me, Unit* attacker)
-{
-    START_HOOK_WITH_RETVAL(CREATURE_EVENT_ON_ATTACKED_AT, me, false);
-    Push(me);
-    Push(attacker);
-    return CallAllFunctionsBool(CreatureEventBindings, CreatureUniqueBindings, entry_key, unique_key);
-}
-
 // Called when creature is spawned or respawned (for reseting variables)
 bool Eluna::JustRespawned(Creature* me)
 {
@@ -292,7 +282,7 @@ void Eluna::On_Reset(Creature* me) // Not an override, custom
 }
 
 // Called when hit by a spell
-bool Eluna::SpellHit(Creature* me, Unit* caster, SpellInfo const* spell)
+bool Eluna::SpellHit(Creature* me, WorldObject* caster, SpellInfo const* spell)
 {
     START_HOOK_WITH_RETVAL(CREATURE_EVENT_ON_HIT_BY_SPELL, me, false);
     Push(me);
@@ -302,7 +292,7 @@ bool Eluna::SpellHit(Creature* me, Unit* caster, SpellInfo const* spell)
 }
 
 // Called when spell hits a target
-bool Eluna::SpellHitTarget(Creature* me, Unit* target, SpellInfo const* spell)
+bool Eluna::SpellHitTarget(Creature* me, WorldObject* target, SpellInfo const* spell)
 {
     START_HOOK_WITH_RETVAL(CREATURE_EVENT_ON_SPELL_HIT_TARGET, me, false);
     Push(me);
@@ -311,7 +301,7 @@ bool Eluna::SpellHitTarget(Creature* me, Unit* target, SpellInfo const* spell)
     return CallAllFunctionsBool(CreatureEventBindings, CreatureUniqueBindings, entry_key, unique_key);
 }
 
-#ifdef TRINITY
+#if defined TRINITY || AZEROTHCORE
 
 bool Eluna::SummonedCreatureDies(Creature* me, Creature* summon, Unit* killer)
 {

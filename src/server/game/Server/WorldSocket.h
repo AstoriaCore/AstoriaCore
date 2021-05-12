@@ -1,20 +1,19 @@
 /*
-* Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
-* Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
-*
-* This program is free software; you can redistribute it and/or modify it
-* under the terms of the GNU General Public License as published by the
-* Free Software Foundation; either version 2 of the License, or (at your
-* option) any later version.
-*
-* This program is distributed in the hope that it will be useful, but WITHOUT
-* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-* FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-* more details.
-*
-* You should have received a copy of the GNU General Public License along
-* with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
 
 #ifndef __WORLDSOCKET_H__
 #define __WORLDSOCKET_H__
@@ -27,11 +26,24 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "MPSCQueue.h"
-#include <chrono>
 #include <boost/asio/ip/tcp.hpp>
 
 using boost::asio::ip::tcp;
-class EncryptablePacket;
+class EncryptablePacket : public WorldPacket
+{
+public:
+    EncryptablePacket(WorldPacket const& packet, bool encrypt) : WorldPacket(packet), _encrypt(encrypt)
+    {
+        SocketQueueLink.store(nullptr, std::memory_order_relaxed);
+    }
+
+    bool NeedsEncryption() const { return _encrypt; }
+
+    std::atomic<EncryptablePacket*> SocketQueueLink;
+
+private:
+    bool _encrypt;
+};
 
 namespace WorldPackets
 {
@@ -58,6 +70,7 @@ class TC_GAME_API WorldSocket : public Socket<WorldSocket>
 
 public:
     WorldSocket(tcp::socket&& socket);
+    ~WorldSocket();
 
     WorldSocket(WorldSocket const& right) = delete;
     WorldSocket& operator=(WorldSocket const& right) = delete;
@@ -66,6 +79,8 @@ public:
     bool Update() override;
 
     void SendPacket(WorldPacket const& packet);
+
+    void SetSendBufferSize(std::size_t sendBufferSize) { _sendBufferSize = sendBufferSize; }
 
 protected:
     void OnClose() override;
@@ -97,10 +112,10 @@ private:
 
     bool HandlePing(WorldPacket& recvPacket);
 
-    uint32 _authSeed;
+    std::array<uint8, 4> _authSeed;
     AuthCrypt _authCrypt;
 
-    std::chrono::steady_clock::time_point _LastPingTime;
+    TimePoint _LastPingTime;
     uint32 _OverSpeedPings;
 
     std::mutex _worldSessionLock;
@@ -109,10 +124,10 @@ private:
 
     MessageBuffer _headerBuffer;
     MessageBuffer _packetBuffer;
-    MPSCQueue<EncryptablePacket> _bufferQueue;
+    MPSCQueue<EncryptablePacket, &EncryptablePacket::SocketQueueLink> _bufferQueue;
+    std::size_t _sendBufferSize;
 
-    PreparedQueryResultFuture _queryFuture;
-    std::function<void(PreparedQueryResult&&)> _queryCallback;
+    QueryCallbackProcessor _queryProcessor;
     std::string _ipCountry;
 };
 

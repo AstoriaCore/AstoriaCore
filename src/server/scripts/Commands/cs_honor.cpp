@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -22,11 +22,16 @@ Comment: All honor related commands
 Category: commandscripts
 EndScriptData */
 
+#include "ScriptMgr.h"
 #include "Chat.h"
 #include "Language.h"
-#include "ObjectMgr.h"
 #include "Player.h"
-#include "ScriptMgr.h"
+#include "RBAC.h"
+#include "WorldSession.h"
+
+#if TRINITY_COMPILER == TRINITY_COMPILER_GNU
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 
 class honor_commandscript : public CommandScript
 {
@@ -43,22 +48,19 @@ public:
 
         static std::vector<ChatCommand> honorCommandTable =
         {
-            { "add",    rbac::RBAC_PERM_COMMAND_HONOR_ADD,    false, NULL,               "", honorAddCommandTable },
+            { "add",    rbac::RBAC_PERM_COMMAND_HONOR_ADD,    false, nullptr,               "", honorAddCommandTable },
             { "update", rbac::RBAC_PERM_COMMAND_HONOR_UPDATE, false, &HandleHonorUpdateCommand,          "" },
         };
 
         static std::vector<ChatCommand> commandTable =
         {
-            { "honor", rbac::RBAC_PERM_COMMAND_HONOR, false, NULL, "", honorCommandTable },
+            { "honor", rbac::RBAC_PERM_COMMAND_HONOR, false, nullptr, "", honorCommandTable },
         };
         return commandTable;
     }
 
-    static bool HandleHonorAddCommand(ChatHandler* handler, char const* args)
+    static bool HandleHonorAddCommand(ChatHandler* handler, uint32 amount)
     {
-        if (!*args)
-            return false;
-
         Player* target = handler->getSelectedPlayer();
         if (!target)
         {
@@ -71,12 +73,11 @@ public:
         if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
             return false;
 
-        uint32 amount = (uint32)atoi(args);
-        target->RewardHonor(NULL, 1, amount);
+        target->RewardHonor(nullptr, 1, amount);
         return true;
     }
 
-    static bool HandleHonorAddKillCommand(ChatHandler* handler, char const* /*args*/)
+    static bool HandleHonorAddKillCommand(ChatHandler* handler)
     {
         Unit* target = handler->getSelectedUnit();
         if (!target)
@@ -95,7 +96,7 @@ public:
         return true;
     }
 
-    static bool HandleHonorUpdateCommand(ChatHandler* handler, char const* /*args*/)
+    static bool HandleHonorUpdateCommand(ChatHandler* handler)
     {
         Player* target = handler->getSelectedPlayer();
         if (!target)

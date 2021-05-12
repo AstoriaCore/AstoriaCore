@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -179,14 +178,21 @@ namespace Trinity
         double x_offset = (double(x) - center_offset)/size;
         double y_offset = (double(y) - center_offset)/size;
 
-        int x_val = int(x_offset + CENTER_VAL + 0.5f);
-        int y_val = int(y_offset + CENTER_VAL + 0.5f);
+        int x_val = int(x_offset + CENTER_VAL + 0.5);
+        int y_val = int(y_offset + CENTER_VAL + 0.5);
         return RET_TYPE(x_val, y_val);
     }
 
     inline GridCoord ComputeGridCoord(float x, float y)
     {
         return Compute<GridCoord, CENTER_GRID_ID>(x, y, CENTER_GRID_OFFSET, SIZE_OF_GRIDS);
+    }
+
+    inline GridCoord ComputeGridCoordSimple(float x, float y)
+    {
+        int gx = (int)(CENTER_GRID_ID - x / SIZE_OF_GRIDS);
+        int gy = (int)(CENTER_GRID_ID - y / SIZE_OF_GRIDS);
+        return GridCoord((MAX_NUMBER_OF_GRIDS - 1) - gx, (MAX_NUMBER_OF_GRIDS - 1) - gy);
     }
 
     inline CellCoord ComputeCellCoord(float x, float y)

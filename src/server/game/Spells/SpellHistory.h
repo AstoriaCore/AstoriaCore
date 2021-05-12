@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,17 +19,27 @@
 #define SpellHistory_h__
 
 #include "SharedDefines.h"
-#include "QueryResult.h"
-#include "Transaction.h"
-#include <chrono>
+#include "DatabaseEnvFwd.h"
+#include "GameTime.h"
 #include <deque>
+#include <vector>
+#include <unordered_map>
 
 class Item;
 class Player;
 class Spell;
 class SpellInfo;
 class Unit;
+class WorldPacket;
 struct SpellCategoryEntry;
+
+/// Spell cooldown flags sent in SMSG_SPELL_COOLDOWN
+enum SpellCooldownFlags
+{
+    SPELL_COOLDOWN_FLAG_NONE                    = 0x0,
+    SPELL_COOLDOWN_FLAG_INCLUDE_GCD             = 0x1,  ///< Starts GCD in addition to normal cooldown specified in the packet
+    SPELL_COOLDOWN_FLAG_INCLUDE_EVENT_COOLDOWNS = 0x2   ///< Starts GCD for spells that should start their cooldown on events, requires SPELL_COOLDOWN_FLAG_INCLUDE_GCD set
+};
 
 class TC_GAME_API SpellHistory
 {
@@ -56,7 +66,7 @@ public:
     void LoadFromDB(PreparedQueryResult cooldownsResult);
 
     template<class OwnerType>
-    void SaveToDB(SQLTransaction& trans);
+    void SaveToDB(CharacterDatabaseTransaction trans);
 
     void Update();
 
@@ -76,7 +86,7 @@ public:
     template<class Type, class Period>
     void AddCooldown(uint32 spellId, uint32 itemId, std::chrono::duration<Type, Period> cooldownDuration)
     {
-        Clock::time_point now = Clock::now();
+        Clock::time_point now = GameTime::GetSystemTime();
         AddCooldown(spellId, itemId, now + std::chrono::duration_cast<Clock::duration>(cooldownDuration), 0, now);
     }
 

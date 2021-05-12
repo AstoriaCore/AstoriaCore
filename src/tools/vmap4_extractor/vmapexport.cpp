@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2011 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,30 +15,29 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#define _CRT_SECURE_NO_DEPRECATE
-
 #include "adtfile.h"
-#include "wdtfile.h"
+#include "Banner.h"
 #include "dbcfile.h"
+#include "StringFormat.h"
+#include "vmapexport.h"
+#include "wdtfile.h"
 #include "wmo.h"
 #include "mpq_libmpq04.h"
-#include "vmapexport.h"
+#include <boost/filesystem/operations.hpp>
+#include <fstream>
+#include <iostream>
+#include <list>
+#include <map>
+#include <unordered_map>
+#include <vector>
+#include <cstdio>
+#include <cerrno>
+#include <sys/stat.h>
 
-#ifdef WIN32
-    #include <sys/stat.h>
+#ifdef _WIN32
     #include <direct.h>
     #define mkdir _mkdir
-#else
-    #include <sys/stat.h>
 #endif
-
-#include <cstdio>
-#include <iostream>
-#include <vector>
-#include <errno.h>
-
-#undef min
-#undef max
 
 //------------------------------------------------------------------------------
 // Defines
@@ -56,23 +54,28 @@ typedef struct
     unsigned int id;
 }map_id;
 
-map_id * map_ids;
-uint16 *LiqType = 0;
+std::vector<map_id> map_ids;
 uint32 map_count;
 char output_path[128]=".";
 char input_path[1024]=".";
 bool hasInputPathParam = false;
 bool preciseVectorData = false;
+std::unordered_map<std::string, WMODoodadData> WmoDoodads;
 
 // Constants
 
-//static const char * szWorkDirMaps = ".\\Maps";
-const char* szWorkDirWmo = "./Buildings";
-const char* szRawVMAPMagic = "VMAP041";
+char const* szWorkDirWmo = "./Buildings";
+
+std::map<std::pair<uint32, uint16>, uint32> uniqueObjectIds;
+
+uint32 GenerateUniqueObjectId(uint32 clientId, uint16 clientDoodadId)
+{
+    return uniqueObjectIds.emplace(std::make_pair(clientId, clientDoodadId), uniqueObjectIds.size() + 1).first->second;
+}
 
 // Local testing functions
 
-bool FileExists(const char* file)
+bool FileExists(char const* file)
 {
     if (FILE* n = fopen(file, "rb"))
     {
@@ -84,67 +87,23 @@ bool FileExists(const char* file)
 
 void strToLower(char* str)
 {
-    while(*str)
+    while (*str)
     {
-        *str=tolower(*str);
+        *str = tolower(*str);
         ++str;
     }
-}
-
-// copied from contrib/extractor/System.cpp
-void ReadLiquidTypeTableDBC()
-{
-    printf("Read LiquidType.dbc file...");
-    DBCFile dbc("DBFilesClient\\LiquidType.dbc");
-    if(!dbc.open())
-    {
-        printf("Fatal error: Invalid LiquidType.dbc file format!\n");
-        exit(1);
-    }
-
-    size_t LiqType_count = dbc.getRecordCount();
-    size_t LiqType_maxid = dbc.getRecord(LiqType_count - 1).getUInt(0);
-    LiqType = new uint16[LiqType_maxid + 1];
-    memset(LiqType, 0xff, (LiqType_maxid + 1) * sizeof(uint16));
-
-    for(uint32 x = 0; x < LiqType_count; ++x)
-        LiqType[dbc.getRecord(x).getUInt(0)] = dbc.getRecord(x).getUInt(3);
-
-    printf("Done! (%u LiqTypes loaded)\n", (unsigned int)LiqType_count);
-}
-
-bool ExtractWmo()
-{
-    bool success = true;
-
-    //const char* ParsArchiveNames[] = {"patch-2.MPQ", "patch.MPQ", "common.MPQ", "expansion.MPQ"};
-
-    for (ArchiveSet::const_iterator ar_itr = gOpenArchives.begin(); ar_itr != gOpenArchives.end() && success; ++ar_itr)
-    {
-        std::vector<std::string> filelist;
-
-        (*ar_itr)->GetFileListTo(filelist);
-        for (std::vector<std::string>::iterator fname = filelist.begin(); fname != filelist.end() && success; ++fname)
-        {
-            if (fname->find(".wmo") != std::string::npos)
-                success = ExtractSingleWmo(*fname);
-        }
-    }
-
-    if (success)
-        printf("\nExtract wmo complete (No (fatal) errors)\n");
-
-    return success;
 }
 
 bool ExtractSingleWmo(std::string& fname)
 {
     // Copy files from archive
+    std::string originalName = fname;
 
     char szLocalFile[1024];
-    const char * plain_name = GetPlainName(fname.c_str());
+    char* plain_name = GetPlainName(&fname[0]);
+    fixnamen(plain_name, strlen(plain_name));
+    fixname2(plain_name, strlen(plain_name));
     sprintf(szLocalFile, "%s/%s", szWorkDirWmo, plain_name);
-    fixnamen(szLocalFile,strlen(szLocalFile));
 
     if (FileExists(szLocalFile))
         return true;
@@ -152,7 +111,7 @@ bool ExtractSingleWmo(std::string& fname)
     int p = 0;
     // Select root wmo files
     char const* rchr = strrchr(plain_name, '_');
-    if (rchr != NULL)
+    if (rchr != nullptr)
     {
         char cpy[4];
         memcpy(cpy, rchr, 4);
@@ -168,9 +127,9 @@ bool ExtractSingleWmo(std::string& fname)
         return true;
 
     bool file_ok = true;
-    std::cout << "Extracting " << fname << std::endl;
-    WMORoot froot(fname);
-    if(!froot.open())
+    printf("Extracting %s\n", originalName.c_str());
+    WMORoot froot(originalName);
+    if (!froot.open())
     {
         printf("Couldn't open RootWmo!!!\n");
         return true;
@@ -182,6 +141,8 @@ bool ExtractSingleWmo(std::string& fname)
         return false;
     }
     froot.ConvertToVMAPRootWmo(output);
+    WMODoodadData& doodads = WmoDoodads[plain_name];
+    std::swap(doodads, froot.DoodadData);
     int Wmo_nVertices = 0;
     //printf("root has %d groups\n", froot->nGroups);
     if (froot.nGroups !=0)
@@ -191,20 +152,27 @@ bool ExtractSingleWmo(std::string& fname)
             char temp[1024];
             strncpy(temp, fname.c_str(), 1024);
             temp[fname.length()-4] = 0;
-            char groupFileName[1024];
-            sprintf(groupFileName, "%s_%03u.wmo", temp, i);
-            //printf("Trying to open groupfile %s\n",groupFileName);
 
-            std::string s = groupFileName;
-            WMOGroup fgroup(s);
-            if(!fgroup.open())
+            WMOGroup fgroup(Trinity::StringFormat("%s_%03u.wmo", temp, i));
+            if (!fgroup.open(&froot))
             {
                 printf("Could not open all Group file for: %s\n", plain_name);
                 file_ok = false;
                 break;
             }
 
-            Wmo_nVertices += fgroup.ConvertToVMAPGroupWmo(output, &froot, preciseVectorData);
+            Wmo_nVertices += fgroup.ConvertToVMAPGroupWmo(output, preciseVectorData);
+            for (uint16 groupReference : fgroup.DoodadReferences)
+            {
+                if (groupReference >= doodads.Spawns.size())
+                    continue;
+
+                uint32 doodadNameIndex = doodads.Spawns[groupReference].NameIndex;
+                if (froot.ValidDoodadNames.find(doodadNameIndex) == froot.ValidDoodadNames.end())
+                    continue;
+
+                doodads.References.insert(groupReference);
+            }
         }
     }
 
@@ -222,13 +190,11 @@ void ParsMapFiles()
 {
     char fn[512];
     //char id_filename[64];
-    char id[10];
     for (unsigned int i=0; i<map_count; ++i)
     {
-        sprintf(id,"%03u",map_ids[i].id);
         sprintf(fn,"World\\Maps\\%s\\%s.wdt", map_ids[i].name, map_ids[i].name);
         WDTFile WDT(fn,map_ids[i].name);
-        if(WDT.init(id, map_ids[i].id))
+        if (WDT.init(map_ids[i].id))
         {
             printf("Processing Map %u\n[", map_ids[i].id);
             for (int x=0; x<64; ++x)
@@ -259,7 +225,7 @@ void getGamePath()
 #endif
 }
 
-bool scan_patches(char* scanmatch, std::vector<std::string>& pArchiveNames)
+bool scan_patches(char const* scanmatch, std::vector<std::string>& pArchiveNames)
 {
     int i;
     char path[512];
@@ -296,7 +262,6 @@ bool fillArchiveNameVector(std::vector<std::string>& pArchiveNames)
 
     printf("\nGame path: %s\n", input_path);
 
-    char path[512];
     std::string in_path(input_path);
     std::vector<std::string> locales, searchLocales;
 
@@ -344,18 +309,16 @@ bool fillArchiveNameVector(std::vector<std::string>& pArchiveNames)
 
     // now, scan for the patch levels in the core dir
     printf("Scanning patch levels from data directory.\n");
-    sprintf(path, "%spatch", input_path);
-    if (!scan_patches(path, pArchiveNames))
+    if (!scan_patches(Trinity::StringFormat("%spatch", input_path).c_str(), pArchiveNames))
         return(false);
 
     // now, scan for the patch levels in locale dirs
     printf("Scanning patch levels from locale directories.\n");
     bool foundOne = false;
-    for (std::vector<std::string>::iterator i = locales.begin(); i != locales.end(); ++i)
+    for (std::string const& locale : locales)
     {
-        printf("Locale: %s\n", i->c_str());
-        sprintf(path, "%s%s/patch-%s", input_path, i->c_str(), i->c_str());
-        if(scan_patches(path, pArchiveNames))
+        printf("Locale: %s\n", locale.c_str());
+        if(scan_patches(Trinity::StringFormat("%s%s/patch-%s", input_path, locale.c_str(), locale.c_str()).c_str(), pArchiveNames))
             foundOne = true;
     }
 
@@ -425,7 +388,6 @@ bool processArgv(int argc, char ** argv, const char *versionString)
     return result;
 }
 
-
 //xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 // Main
 //
@@ -437,7 +399,9 @@ bool processArgv(int argc, char ** argv, const char *versionString)
 
 int main(int argc, char ** argv)
 {
-    bool success=true;
+    Trinity::Banner::Show("VMAP data extractor", [](char const* text) { printf("%s\n", text); }, nullptr);
+
+    bool success = true;
     const char *versionString = "V4.00 2012_02";
 
     // Use command line arguments, when some
@@ -459,7 +423,7 @@ int main(int argc, char ** argv)
         }
     }
 
-    printf("Extract %s. Beginning work ....\n",versionString);
+    printf("Extract %s. Beginning work ....\n", versionString);
     //xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
     // Create the working directory
     if (mkdir(szWorkDirWmo
@@ -472,7 +436,7 @@ int main(int argc, char ** argv)
     // prepare archive name list
     std::vector<std::string> archiveNames;
     fillArchiveNameVector(archiveNames);
-    for (size_t i=0; i < archiveNames.size(); ++i)
+    for (size_t i = 0; i < archiveNames.size(); ++i)
     {
         MPQArchive *archive = new MPQArchive(archiveNames[i].c_str());
         if (gOpenArchives.empty() || gOpenArchives.front() != archive)
@@ -481,14 +445,9 @@ int main(int argc, char ** argv)
 
     if (gOpenArchives.empty())
     {
-        printf("FATAL ERROR: None MPQ archive found by path '%s'. Use -d option with proper path.\n",input_path);
+        printf("FATAL ERROR: None MPQ archive found by path '%s'. Use -d option with proper path.\n", input_path);
         return 1;
     }
-    ReadLiquidTypeTableDBC();
-
-    // extract data
-    if (success)
-        success = ExtractWmo();
 
     //xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
     //map.dbc
@@ -501,18 +460,17 @@ int main(int argc, char ** argv)
             printf("FATAL ERROR: Map.dbc not found in data file.\n");
             return 1;
         }
-        map_count=dbc->getRecordCount ();
-        map_ids=new map_id[map_count];
-        for (unsigned int x=0;x<map_count;++x)
+        map_count = dbc->getRecordCount();
+        map_ids.resize(map_count);
+        for (unsigned int x = 0; x < map_count; ++x)
         {
             map_ids[x].id = dbc->getRecord(x).getUInt(0);
 
-            const char* map_name = dbc->getRecord(x).getString(1);
+            char const* map_name = dbc->getRecord(x).getString(1);
             size_t max_map_name_length = sizeof(map_ids[x].name);
             if (strlen(map_name) >= max_map_name_length)
             {
                 delete dbc;
-                delete[] map_ids;
                 printf("FATAL ERROR: Map name too long.\n");
                 return 1;
             }
@@ -524,7 +482,6 @@ int main(int argc, char ** argv)
 
         delete dbc;
         ParsMapFiles();
-        delete [] map_ids;
         //nError = ERROR_SUCCESS;
         // Extract models, listed in DameObjectDisplayInfo.dbc
         ExtractGameobjectModels();
@@ -533,11 +490,10 @@ int main(int argc, char ** argv)
     printf("\n");
     if (!success)
     {
-        printf("ERROR: Extract %s. Work NOT complete.\n   Precise vector data=%d.\nPress any key.\n",versionString, preciseVectorData);
+        printf("ERROR: Extract %s. Work NOT complete.\n   Precise vector data=%d.\nPress any key.\n", versionString, preciseVectorData);
         getchar();
     }
 
-    printf("Extract %s. Work complete. No errors.\n",versionString);
-    delete [] LiqType;
+    printf("Extract %s. Work complete. No errors.\n", versionString);
     return 0;
 }

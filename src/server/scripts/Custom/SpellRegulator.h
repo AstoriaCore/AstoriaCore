@@ -1,3 +1,6 @@
+#include "DatabaseEnv.h"
+#include "Log.h"
+
 #ifndef SPELL_REGULATOR_H
 #define SPELL_REGULATOR_H
 

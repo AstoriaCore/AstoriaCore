@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -20,20 +19,19 @@
 #define SC_SCRIPTMGR_H
 
 #include "Common.h"
-#include <atomic>
-#include "DBCStores.h"
-#include "QuestDef.h"
-#include "SharedDefines.h"
-#include "World.h"
-#include "Weather.h"
+#include "ObjectGuid.h"
+#include "Tuples.h"
+#include "Types.h"
+#include <vector>
 
 class AccountMgr;
 class AuctionHouseObject;
+class Aura;
 class AuraScript;
+class Battlefield;
 class Battleground;
 class BattlegroundMap;
 class Channel;
-class ChatCommand;
 class Creature;
 class CreatureAI;
 class DynamicObject;
@@ -52,27 +50,45 @@ class Player;
 class Quest;
 class ScriptMgr;
 class Spell;
+class SpellInfo;
 class SpellScript;
 class SpellCastTargets;
 class Transport;
 class Unit;
 class Vehicle;
+class Weather;
 class WorldPacket;
 class WorldSocket;
 class WorldObject;
 class WorldSession;
 
 struct AchievementCriteriaData;
+struct AreaTriggerEntry;
 struct AuctionEntry;
 struct ConditionSourceInfo;
 struct Condition;
 struct CreatureTemplate;
 struct CreatureData;
 struct ItemTemplate;
-struct OutdoorPvPData;
+struct MapEntry;
+struct Position;
+
+namespace Trinity::ChatCommands { struct ChatCommandBuilder; }
+
+enum BattlegroundTypeId : uint32;
+enum ContentLevels : uint8;
+enum Difficulty : uint8;
+enum DuelCompleteType : uint8;
+enum Emote : uint32;
+enum QuestStatus : uint8;
+enum RemoveMethod : uint8;
+enum ShutdownExitCode : uint32;
+enum ShutdownMask : uint32;
+enum SpellEffIndex : uint8;
+enum WeatherState : uint32;
+enum XPColorChar : uint8;
 
 #define VISIBLE_RANGE       166.0f                          //MAX visible range (size of grid)
-
 
 /*
     @todo Add more script type classes.
@@ -99,7 +115,7 @@ struct OutdoorPvPData;
 
         protected:
 
-            MyScriptType(const char* name, uint32 someId)
+            MyScriptType(char const* name, uint32 someId)
                 : ScriptObject(name), _someId(someId)
             {
                 ScriptRegistry<MyScriptType>::AddScript(this);
@@ -160,7 +176,7 @@ class TC_GAME_API ScriptObject
 
     protected:
 
-        ScriptObject(const char* name);
+        ScriptObject(char const* name);
         virtual ~ScriptObject();
 
     private:
@@ -187,22 +203,22 @@ class TC_GAME_API SpellScriptLoader : public ScriptObject
 {
     protected:
 
-        SpellScriptLoader(const char* name);
+        SpellScriptLoader(char const* name);
 
     public:
 
         // Should return a fully valid SpellScript pointer.
-        virtual SpellScript* GetSpellScript() const { return NULL; }
+        virtual SpellScript* GetSpellScript() const { return nullptr; }
 
         // Should return a fully valid AuraScript pointer.
-        virtual AuraScript* GetAuraScript() const { return NULL; }
+        virtual AuraScript* GetAuraScript() const { return nullptr; }
 };
 
 class TC_GAME_API ServerScript : public ScriptObject
 {
     protected:
 
-        ServerScript(const char* name);
+        ServerScript(char const* name);
 
     public:
 
@@ -232,7 +248,7 @@ class TC_GAME_API WorldScript : public ScriptObject
 {
     protected:
 
-        WorldScript(const char* name);
+        WorldScript(char const* name);
 
     public:
 
@@ -265,7 +281,7 @@ class TC_GAME_API FormulaScript : public ScriptObject
 {
     protected:
 
-        FormulaScript(const char* name);
+        FormulaScript(char const* name);
 
     public:
 
@@ -297,12 +313,7 @@ template<class TMap> class MapScript : public UpdatableScript<TMap>
 
     protected:
 
-        MapScript(uint32 mapId)
-            : _mapEntry(sMapStore.LookupEntry(mapId))
-        {
-            if (!_mapEntry)
-                TC_LOG_ERROR("scripts", "Invalid MapScript for %u; no such map ID.", mapId);
-        }
+        MapScript(MapEntry const* mapEntry) : _mapEntry(mapEntry) { }
 
     public:
 
@@ -332,7 +343,7 @@ class TC_GAME_API WorldMapScript : public ScriptObject, public MapScript<Map>
 {
     protected:
 
-        WorldMapScript(const char* name, uint32 mapId);
+        WorldMapScript(char const* name, uint32 mapId);
 };
 
 class TC_GAME_API InstanceMapScript
@@ -340,31 +351,28 @@ class TC_GAME_API InstanceMapScript
 {
     protected:
 
-        InstanceMapScript(const char* name, uint32 mapId);
+        InstanceMapScript(char const* name, uint32 mapId);
 
     public:
 
         // Gets an InstanceScript object for this instance.
-        virtual InstanceScript* GetInstanceScript(InstanceMap* /*map*/) const { return NULL; }
+        virtual InstanceScript* GetInstanceScript(InstanceMap* /*map*/) const { return nullptr; }
 };
 
 class TC_GAME_API BattlegroundMapScript : public ScriptObject, public MapScript<BattlegroundMap>
 {
     protected:
 
-        BattlegroundMapScript(const char* name, uint32 mapId);
+        BattlegroundMapScript(char const* name, uint32 mapId);
 };
 
 class TC_GAME_API ItemScript : public ScriptObject
 {
     protected:
 
-        ItemScript(const char* name);
+        ItemScript(char const* name);
 
     public:
-
-        // Called when a dummy spell effect is triggered on the item.
-        virtual bool OnDummyEffect(Unit* /*caster*/, uint32 /*spellId*/, SpellEffIndex /*effIndex*/, Item* /*target*/) { return false; }
 
         // Called when a player accepts a quest from the item.
         virtual bool OnQuestAccept(Player* /*player*/, Item* /*item*/, Quest const* /*quest*/) { return false; }
@@ -378,6 +386,9 @@ class TC_GAME_API ItemScript : public ScriptObject
         // Called when the item is destroyed.
         virtual bool OnRemove(Player* /*player*/, Item* /*item*/) { return false; }
 
+        // Called before casting a combat spell from this item (chance on hit spells of item template, can be used to prevent cast if returning false)
+        virtual bool OnCastItemCombatSpell(Player* /*player*/, Unit* /*victim*/, SpellInfo const* /*spellInfo*/, Item* /*item*/) { return true; }
+
         // Called when a player selects an option in an item gossip window
         virtual void OnGossipSelect(Player* /*player*/, Item* /*item*/, uint32 /*sender*/, uint32 /*action*/) { }
 
@@ -389,7 +400,7 @@ class TC_GAME_API UnitScript : public ScriptObject
 {
     protected:
 
-        UnitScript(const char* name, bool addToScripts = true);
+        UnitScript(char const* name);
 
     public:
         // Called when a unit deals healing to another unit
@@ -406,97 +417,42 @@ class TC_GAME_API UnitScript : public ScriptObject
 
         // Called when Spell Damage is being Dealt
         virtual void ModifySpellDamageTaken(Unit* /*target*/, Unit* /*attacker*/, int32& /*damage*/) { }
+
+        // Called when an unit exits a vehicle
+        virtual void ModifyVehiclePassengerExitPos(Unit* /*passenger*/, Vehicle* /*vehicle*/, Position& /*pos*/) { }
 };
 
-class TC_GAME_API CreatureScript : public UnitScript, public UpdatableScript<Creature>
+class TC_GAME_API CreatureScript : public ScriptObject
 {
     protected:
 
-        CreatureScript(const char* name);
+        CreatureScript(char const* name);
 
     public:
-
-        // Called when a dummy spell effect is triggered on the creature.
-        virtual bool OnDummyEffect(Unit* /*caster*/, uint32 /*spellId*/, SpellEffIndex /*effIndex*/, Creature* /*target*/) { return false; }
-
-        // Called when a player opens a gossip dialog with the creature.
-        virtual bool OnGossipHello(Player* /*player*/, Creature* /*creature*/) { return false; }
-
-        // Called when a player selects a gossip item in the creature's gossip menu.
-        virtual bool OnGossipSelect(Player* /*player*/, Creature* /*creature*/, uint32 /*sender*/, uint32 /*action*/) { return false; }
-
-        // Called when a player selects a gossip with a code in the creature's gossip menu.
-        virtual bool OnGossipSelectCode(Player* /*player*/, Creature* /*creature*/, uint32 /*sender*/, uint32 /*action*/, const char* /*code*/) { return false; }
-
-        // Called when a player accepts a quest from the creature.
-        virtual bool OnQuestAccept(Player* /*player*/, Creature* /*creature*/, Quest const* /*quest*/) { return false; }
-
-        // Called when a player selects a quest in the creature's quest menu.
-        virtual bool OnQuestSelect(Player* /*player*/, Creature* /*creature*/, Quest const* /*quest*/) { return false; }
-
-        // Called when a player completes a quest and is rewarded, opt is the selected item's index or 0
-        virtual bool OnQuestReward(Player* /*player*/, Creature* /*creature*/, Quest const* /*quest*/, uint32 /*opt*/) { return false; }
-
-        // Called when the dialog status between a player and the creature is requested.
-        virtual uint32 GetDialogStatus(Player* /*player*/, Creature* /*creature*/) { return DIALOG_STATUS_SCRIPTED_NO_STATUS; }
-
-        // Called when the creature tries to spawn. Return false to block spawn and re-evaluate on next tick.
-        virtual bool CanSpawn(ObjectGuid::LowType /*spawnId*/, uint32 /*entry*/, CreatureTemplate const* /*baseTemplate*/, CreatureTemplate const* /*actTemplate*/, CreatureData const* /*cData*/, Map const* /*map*/) const { return true; }
+        // Called when an unit exits a vehicle
+        virtual void ModifyVehiclePassengerExitPos(Unit* /*passenger*/, Vehicle* /*vehicle*/, Position& /*pos*/) { }
 
         // Called when a CreatureAI object is needed for the creature.
-        virtual CreatureAI* GetAI(Creature* /*creature*/) const { return NULL; }
+        virtual CreatureAI* GetAI(Creature* /*creature*/) const = 0;
 };
 
-class TC_GAME_API GameObjectScript : public ScriptObject, public UpdatableScript<GameObject>
+class TC_GAME_API GameObjectScript : public ScriptObject
 {
     protected:
 
-        GameObjectScript(const char* name);
+        GameObjectScript(char const* name);
 
     public:
 
-        // Called when a dummy spell effect is triggered on the gameobject.
-        virtual bool OnDummyEffect(Unit* /*caster*/, uint32 /*spellId*/, SpellEffIndex /*effIndex*/, GameObject* /*target*/) { return false; }
-
-        // Called when a player opens a gossip dialog with the gameobject.
-        virtual bool OnGossipHello(Player* /*player*/, GameObject* /*go*/) { return false; }
-
-        // Called when a player selects a gossip item in the gameobject's gossip menu.
-        virtual bool OnGossipSelect(Player* /*player*/, GameObject* /*go*/, uint32 /*sender*/, uint32 /*action*/) { return false; }
-
-        // Called when a player selects a gossip with a code in the gameobject's gossip menu.
-        virtual bool OnGossipSelectCode(Player* /*player*/, GameObject* /*go*/, uint32 /*sender*/, uint32 /*action*/, const char* /*code*/) { return false; }
-
-        // Called when a player accepts a quest from the gameobject.
-        virtual bool OnQuestAccept(Player* /*player*/, GameObject* /*go*/, Quest const* /*quest*/) { return false; }
-
-        // Called when a player completes a quest and is rewarded, opt is the selected item's index or 0
-        virtual bool OnQuestReward(Player* /*player*/, GameObject* /*go*/, Quest const* /*quest*/, uint32 /*opt*/) { return false; }
-
-        // Called when the dialog status between a player and the gameobject is requested.
-        virtual uint32 GetDialogStatus(Player* /*player*/, GameObject* /*go*/) { return DIALOG_STATUS_SCRIPTED_NO_STATUS; }
-
-        // Called when the game object is destroyed (destructible buildings only).
-        virtual void OnDestroyed(GameObject* /*go*/, Player* /*player*/) { }
-
-        // Called when the game object is damaged (destructible buildings only).
-        virtual void OnDamaged(GameObject* /*go*/, Player* /*player*/) { }
-
-        // Called when the game object loot state is changed.
-        virtual void OnLootStateChanged(GameObject* /*go*/, uint32 /*state*/, Unit* /*unit*/) { }
-
-        // Called when the game object state is changed.
-        virtual void OnGameObjectStateChanged(GameObject* /*go*/, uint32 /*state*/) { }
-
         // Called when a GameObjectAI object is needed for the gameobject.
-        virtual GameObjectAI* GetAI(GameObject* /*go*/) const { return NULL; }
+        virtual GameObjectAI* GetAI(GameObject* /*go*/) const = 0;
 };
 
 class TC_GAME_API AreaTriggerScript : public ScriptObject
 {
     protected:
 
-        AreaTriggerScript(const char* name);
+        AreaTriggerScript(char const* name);
 
     public:
 
@@ -504,11 +460,36 @@ class TC_GAME_API AreaTriggerScript : public ScriptObject
         virtual bool OnTrigger(Player* /*player*/, AreaTriggerEntry const* /*trigger*/) { return false; }
 };
 
+class TC_GAME_API OnlyOnceAreaTriggerScript : public AreaTriggerScript
+{
+    using AreaTriggerScript::AreaTriggerScript;
+
+    public:
+        bool OnTrigger(Player* /*player*/, AreaTriggerEntry const* /*trigger*/) final override;
+
+    protected:
+        // returns true if the trigger was successfully handled, false if we should try again next time
+        virtual bool TryHandleOnce(Player* /*player*/, AreaTriggerEntry const* /*trigger*/) = 0;
+        void ResetAreaTriggerDone(InstanceScript* /*instance*/, uint32 /*triggerId*/);
+        void ResetAreaTriggerDone(Player const* /*player*/, AreaTriggerEntry const* /*trigger*/);
+};
+
+class TC_GAME_API BattlefieldScript : public ScriptObject
+{
+    protected:
+
+        BattlefieldScript(char const* name);
+
+    public:
+
+        virtual Battlefield* GetBattlefield() const = 0;
+};
+
 class TC_GAME_API BattlegroundScript : public ScriptObject
 {
     protected:
 
-        BattlegroundScript(const char* name);
+        BattlegroundScript(char const* name);
 
     public:
 
@@ -520,7 +501,7 @@ class TC_GAME_API OutdoorPvPScript : public ScriptObject
 {
     protected:
 
-        OutdoorPvPScript(const char* name);
+        OutdoorPvPScript(char const* name);
 
     public:
 
@@ -532,19 +513,19 @@ class TC_GAME_API CommandScript : public ScriptObject
 {
     protected:
 
-        CommandScript(const char* name);
+        CommandScript(char const* name);
 
     public:
 
         // Should return a pointer to a valid command table (ChatCommand array) to be used by ChatHandler.
-        virtual std::vector<ChatCommand> GetCommands() const = 0;
+        virtual std::vector<Trinity::ChatCommands::ChatCommandBuilder> GetCommands() const = 0;
 };
 
 class TC_GAME_API WeatherScript : public ScriptObject, public UpdatableScript<Weather>
 {
     protected:
 
-        WeatherScript(const char* name);
+        WeatherScript(char const* name);
 
     public:
 
@@ -556,7 +537,7 @@ class TC_GAME_API AuctionHouseScript : public ScriptObject
 {
     protected:
 
-        AuctionHouseScript(const char* name);
+        AuctionHouseScript(char const* name);
 
     public:
 
@@ -577,7 +558,7 @@ class TC_GAME_API ConditionScript : public ScriptObject
 {
     protected:
 
-        ConditionScript(const char* name);
+        ConditionScript(char const* name);
 
     public:
 
@@ -589,7 +570,7 @@ class TC_GAME_API VehicleScript : public ScriptObject
 {
     protected:
 
-        VehicleScript(const char* name);
+        VehicleScript(char const* name);
 
     public:
 
@@ -616,14 +597,14 @@ class TC_GAME_API DynamicObjectScript : public ScriptObject, public UpdatableScr
 {
     protected:
 
-        DynamicObjectScript(const char* name);
+        DynamicObjectScript(char const* name);
 };
 
 class TC_GAME_API TransportScript : public ScriptObject, public UpdatableScript<Transport>
 {
     protected:
 
-        TransportScript(const char* name);
+        TransportScript(char const* name);
 
     public:
 
@@ -644,7 +625,7 @@ class TC_GAME_API AchievementCriteriaScript : public ScriptObject
 {
     protected:
 
-        AchievementCriteriaScript(const char* name);
+        AchievementCriteriaScript(char const* name);
 
     public:
 
@@ -652,11 +633,11 @@ class TC_GAME_API AchievementCriteriaScript : public ScriptObject
         virtual bool OnCheck(Player* source, Unit* target) = 0;
 };
 
-class TC_GAME_API PlayerScript : public UnitScript
+class TC_GAME_API PlayerScript : public ScriptObject
 {
     protected:
 
-        PlayerScript(const char* name);
+        PlayerScript(char const* name);
 
     public:
 
@@ -711,7 +692,7 @@ class TC_GAME_API PlayerScript : public UnitScript
         virtual void OnChat(Player* /*player*/, uint32 /*type*/, uint32 /*lang*/, std::string& /*msg*/, Channel* /*channel*/) { }
 
         // Both of the below are called on emote opcodes.
-        virtual void OnEmote(Player* /*player*/, uint32 /*emote*/) { }
+        virtual void OnEmote(Player* /*player*/, Emote /*emote*/) { }
 
         virtual void OnTextEmote(Player* /*player*/, uint32 /*textEmote*/, uint32 /*emoteNum*/, ObjectGuid /*guid*/) { }
 
@@ -751,15 +732,24 @@ class TC_GAME_API PlayerScript : public UnitScript
         // Called when a player selects an option in a player gossip window
         virtual void OnGossipSelectCode(Player* /*player*/, uint32 /*menu_id*/, uint32 /*sender*/, uint32 /*action*/, const char* /*code*/) { }
 
+        // Called when a player obtains progress on a quest's objective
+        virtual void OnQuestObjectiveProgress(Player* /*player*/, Quest const* /*quest*/, uint32 /*objectiveIndex*/, uint16 /*progress*/) { }
+
         // Called after a player's quest status has been changed
         virtual void OnQuestStatusChange(Player* /*player*/, uint32 /*questId*/) { }
+
+        // Called when a player completes a movie
+        virtual void OnMovieComplete(Player* /*player*/, uint32 /*movieId*/) { }
+
+        // Called when a player presses release when he died
+        virtual void OnPlayerRepop(Player* /*player*/) { }
 };
 
 class TC_GAME_API AccountScript : public ScriptObject
 {
     protected:
 
-        AccountScript(const char* name);
+        AccountScript(char const* name);
 
     public:
 
@@ -786,7 +776,7 @@ class TC_GAME_API GuildScript : public ScriptObject
 {
     protected:
 
-        GuildScript(const char* name);
+        GuildScript(char const* name);
 
     public:
 
@@ -827,7 +817,7 @@ class TC_GAME_API GroupScript : public ScriptObject
 {
     protected:
 
-        GroupScript(const char* name);
+        GroupScript(char const* name);
 
     public:
 
@@ -838,7 +828,7 @@ class TC_GAME_API GroupScript : public ScriptObject
         virtual void OnInviteMember(Group* /*group*/, ObjectGuid /*guid*/) { }
 
         // Called when a member is removed from a group.
-        virtual void OnRemoveMember(Group* /*group*/, ObjectGuid /*guid*/, RemoveMethod /*method*/, ObjectGuid /*kicker*/, const char* /*reason*/) { }
+        virtual void OnRemoveMember(Group* /*group*/, ObjectGuid /*guid*/, RemoveMethod /*method*/, ObjectGuid /*kicker*/, char const* /*reason*/) { }
 
         // Called when the leader of a group is changed.
         virtual void OnChangeLeader(Group* /*group*/, ObjectGuid /*newLeaderGuid*/, ObjectGuid /*oldLeaderGuid*/) { }
@@ -908,8 +898,8 @@ class TC_GAME_API ScriptMgr
 
     public: /* SpellScriptLoader */
 
-        void CreateSpellScripts(uint32 spellId, std::list<SpellScript*>& scriptVector);
-        void CreateAuraScripts(uint32 spellId, std::list<AuraScript*>& scriptVector);
+        void CreateSpellScripts(uint32 spellId, std::vector<SpellScript*>& scriptVector, Spell* invoker) const;
+        void CreateAuraScripts(uint32 spellId, std::vector<AuraScript*>& scriptVector, Aura* invoker) const;
         SpellScriptLoader* GetSpellScriptLoader(uint32 scriptId);
 
     public: /* ServerScript */
@@ -958,47 +948,29 @@ class TC_GAME_API ScriptMgr
 
     public: /* ItemScript */
 
-        bool OnDummyEffect(Unit* caster, uint32 spellId, SpellEffIndex effIndex, Item* target);
         bool OnQuestAccept(Player* player, Item* item, Quest const* quest);
         bool OnItemUse(Player* player, Item* item, SpellCastTargets const& targets);
         bool OnItemExpire(Player* player, ItemTemplate const* proto);
         bool OnItemRemove(Player* player, Item* item);
+        bool OnCastItemCombatSpell(Player* player, Unit* victim, SpellInfo const* spellInfo, Item* item);
         void OnGossipSelect(Player* player, Item* item, uint32 sender, uint32 action);
         void OnGossipSelectCode(Player* player, Item* item, uint32 sender, uint32 action, const char* code);
 
     public: /* CreatureScript */
 
-        bool OnDummyEffect(Unit* caster, uint32 spellId, SpellEffIndex effIndex, Creature* target);
-        bool OnGossipHello(Player* player, Creature* creature);
-        bool OnGossipSelect(Player* player, Creature* creature, uint32 sender, uint32 action);
-        bool OnGossipSelectCode(Player* player, Creature* creature, uint32 sender, uint32 action, const char* code);
-        bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest);
-        bool OnQuestSelect(Player* player, Creature* creature, Quest const* quest);
-        bool OnQuestReward(Player* player, Creature* creature, Quest const* quest, uint32 opt);
-        uint32 GetDialogStatus(Player* player, Creature* creature);
-        bool CanSpawn(ObjectGuid::LowType spawnId, uint32 entry, CreatureTemplate const* actTemplate, CreatureData const* cData, Map const* map);
         CreatureAI* GetCreatureAI(Creature* creature);
-        void OnCreatureUpdate(Creature* creature, uint32 diff);
 
     public: /* GameObjectScript */
 
-        bool OnDummyEffect(Unit* caster, uint32 spellId, SpellEffIndex effIndex, GameObject* target);
-        bool OnGossipHello(Player* player, GameObject* go);
-        bool OnGossipSelect(Player* player, GameObject* go, uint32 sender, uint32 action);
-        bool OnGossipSelectCode(Player* player, GameObject* go, uint32 sender, uint32 action, const char* code);
-        bool OnQuestAccept(Player* player, GameObject* go, Quest const* quest);
-        bool OnQuestReward(Player* player, GameObject* go, Quest const* quest, uint32 opt);
-        uint32 GetDialogStatus(Player* player, GameObject* go);
-        void OnGameObjectDestroyed(GameObject* go, Player* player);
-        void OnGameObjectDamaged(GameObject* go, Player* player);
-        void OnGameObjectLootStateChanged(GameObject* go, uint32 state, Unit* unit);
-        void OnGameObjectStateChanged(GameObject* go, uint32 state);
-        void OnGameObjectUpdate(GameObject* go, uint32 diff);
         GameObjectAI* GetGameObjectAI(GameObject* go);
 
     public: /* AreaTriggerScript */
 
         bool OnAreaTrigger(Player* player, AreaTriggerEntry const* trigger);
+
+    public: /* BattlefieldScript */
+
+        Battlefield* CreateBattlefield(uint32 scriptId);
 
     public: /* BattlegroundScript */
 
@@ -1006,11 +978,11 @@ class TC_GAME_API ScriptMgr
 
     public: /* OutdoorPvPScript */
 
-        OutdoorPvP* CreateOutdoorPvP(OutdoorPvPData const* data);
+        OutdoorPvP* CreateOutdoorPvP(uint32 scriptId);
 
     public: /* CommandScript */
 
-        std::vector<ChatCommand> GetChatCommands();
+        std::vector<Trinity::ChatCommands::ChatCommandBuilder> GetChatCommands();
 
     public: /* WeatherScript */
 
@@ -1073,7 +1045,7 @@ class TC_GAME_API ScriptMgr
         void OnPlayerChat(Player* player, uint32 type, uint32 lang, std::string& msg, Group* group);
         void OnPlayerChat(Player* player, uint32 type, uint32 lang, std::string& msg, Guild* guild);
         void OnPlayerChat(Player* player, uint32 type, uint32 lang, std::string& msg, Channel* channel);
-        void OnPlayerEmote(Player* player, uint32 emote);
+        void OnPlayerEmote(Player* player, Emote emote);
         void OnPlayerTextEmote(Player* player, uint32 textEmote, uint32 emoteNum, ObjectGuid guid);
         void OnPlayerSpellCast(Player* player, Spell* spell, bool skipCheck);
         void OnPlayerLogin(Player* player, bool firstLogin);
@@ -1086,7 +1058,10 @@ class TC_GAME_API ScriptMgr
         void OnPlayerUpdateZone(Player* player, uint32 newZone, uint32 newArea);
         void OnGossipSelect(Player* player, uint32 menu_id, uint32 sender, uint32 action);
         void OnGossipSelectCode(Player* player, uint32 menu_id, uint32 sender, uint32 action, const char* code);
+        void OnQuestObjectiveProgress(Player* player, Quest const* quest, uint32 objectiveIndex, uint16 progress);
         void OnQuestStatusChange(Player* player, uint32 questId);
+        void OnMovieComplete(Player* player, uint32 movieId);
+        void OnPlayerRepop(Player* player);
 
     public: /* AccountScript */
 
@@ -1116,7 +1091,7 @@ class TC_GAME_API ScriptMgr
 
         void OnGroupAddMember(Group* group, ObjectGuid guid);
         void OnGroupInviteMember(Group* group, ObjectGuid guid);
-        void OnGroupRemoveMember(Group* group, ObjectGuid guid, RemoveMethod method, ObjectGuid kicker, const char* reason);
+        void OnGroupRemoveMember(Group* group, ObjectGuid guid, RemoveMethod method, ObjectGuid kicker, char const* reason);
         void OnGroupChangeLeader(Group* group, ObjectGuid newLeaderGuid, ObjectGuid oldLeaderGuid);
         void OnGroupDisband(Group* group);
 
@@ -1127,6 +1102,7 @@ class TC_GAME_API ScriptMgr
         void ModifyPeriodicDamageAurasTick(Unit* target, Unit* attacker, uint32& damage);
         void ModifyMeleeDamage(Unit* target, Unit* attacker, uint32& damage);
         void ModifySpellDamageTaken(Unit* target, Unit* attacker, int32& damage);
+        void ModifyVehiclePassengerExitPos(Unit* passenger, Vehicle* vehicle, Position& pos);
 
     private:
         uint32 _scriptCount;
@@ -1135,6 +1111,86 @@ class TC_GAME_API ScriptMgr
 
         std::string _currentContext;
 };
+
+namespace Trinity::SpellScripts
+{
+    template<typename T>
+    using is_SpellScript = std::is_base_of<SpellScript, T>;
+
+    template<typename T>
+    using is_AuraScript = std::is_base_of<AuraScript, T>;
+}
+
+template <typename... Ts>
+class GenericSpellAndAuraScriptLoader : public SpellScriptLoader
+{
+    using SpellScriptType = typename Trinity::find_type_if_t<Trinity::SpellScripts::is_SpellScript, Ts...>;
+    using AuraScriptType = typename Trinity::find_type_if_t<Trinity::SpellScripts::is_AuraScript, Ts...>;
+    using ArgsType = typename Trinity::find_type_if_t<Trinity::is_tuple, Ts...>;
+
+public:
+    GenericSpellAndAuraScriptLoader(char const* name, ArgsType&& args) : SpellScriptLoader(name), _args(std::move(args)) { }
+
+private:
+    SpellScript* GetSpellScript() const override
+    {
+        if constexpr (!std::is_same_v<SpellScriptType, Trinity::find_type_end>)
+            return Trinity::new_from_tuple<SpellScriptType>(_args);
+        else
+            return nullptr;
+    }
+
+    AuraScript* GetAuraScript() const override
+    {
+        if constexpr (!std::is_same_v<AuraScriptType, Trinity::find_type_end>)
+            return Trinity::new_from_tuple<AuraScriptType>(_args);
+        else
+            return nullptr;
+    }
+
+    ArgsType _args;
+};
+
+#define RegisterSpellScriptWithArgs(spell_script, script_name, ...) new GenericSpellAndAuraScriptLoader<spell_script, decltype(std::make_tuple(__VA_ARGS__))>(script_name, std::make_tuple(__VA_ARGS__))
+#define RegisterSpellScript(spell_script) RegisterSpellScriptWithArgs(spell_script, #spell_script)
+#define RegisterSpellAndAuraScriptPairWithArgs(script_1, script_2, script_name, ...) new GenericSpellAndAuraScriptLoader<script_1, script_2, decltype(std::make_tuple(__VA_ARGS__))>(script_name, std::make_tuple(__VA_ARGS__))
+#define RegisterSpellAndAuraScriptPair(script_1, script_2) RegisterSpellAndAuraScriptPairWithArgs(script_1, script_2, #script_1)
+
+template <class AI>
+class GenericCreatureScript : public CreatureScript
+{
+    public:
+        GenericCreatureScript(char const* name) : CreatureScript(name) { }
+        CreatureAI* GetAI(Creature* me) const override { return new AI(me); }
+};
+#define RegisterCreatureAI(ai_name) new GenericCreatureScript<ai_name>(#ai_name)
+
+template <class AI, AI* (*AIFactory)(Creature*)>
+class FactoryCreatureScript : public CreatureScript
+{
+    public:
+        FactoryCreatureScript(char const* name) : CreatureScript(name) { }
+        CreatureAI* GetAI(Creature* me) const override { return AIFactory(me); }
+};
+#define RegisterCreatureAIWithFactory(ai_name, factory_fn) new FactoryCreatureScript<ai_name, &factory_fn>(#ai_name)
+
+template <class AI>
+class GenericGameObjectScript : public GameObjectScript
+{
+    public:
+        GenericGameObjectScript(char const* name) : GameObjectScript(name) { }
+        GameObjectAI* GetAI(GameObject* go) const override { return new AI(go); }
+};
+#define RegisterGameObjectAI(ai_name) new GenericGameObjectScript<ai_name>(#ai_name)
+
+template <class AI, AI* (*AIFactory)(GameObject*)>
+class FactoryGameObjectScript : public GameObjectScript
+{
+    public:
+        FactoryGameObjectScript(char const* name) : GameObjectScript(name) { }
+        GameObjectAI* GetAI(GameObject* me) const override { return AIFactory(me); }
+};
+#define RegisterGameObjectAIWithFactory(ai_name, factory_fn) new FactoryGameObjectScript<ai_name, &factory_fn>(#ai_name)
 
 #define sScriptMgr ScriptMgr::instance()
 

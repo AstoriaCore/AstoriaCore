@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -90,9 +90,9 @@ inline void KillRewarder::_InitGroupData()
         // 2. In case when player is in group, initialize variables necessary for group calculations:
         for (GroupReference* itr = _group->GetFirstMember(); itr != nullptr; itr = itr->next())
             if (Player* member = itr->GetSource())
-                if (member->IsAlive() && member->IsAtGroupRewardDistance(_victim))
+                if (_killer == member || (member->IsAtGroupRewardDistance(_victim) && member->IsAlive()))
                 {
-                    const uint8 lvl = member->getLevel();
+                    const uint8 lvl = member->GetLevel();
                     // 2.1. _count - number of alive group members within reward distance;
                     ++_count;
                     // 2.2. _sumLevel - sum of levels of alive group members within reward distance;
@@ -103,12 +103,12 @@ inline void KillRewarder::_InitGroupData()
                     // 2.4. _maxNotGrayMember - maximum level of alive group member within reward distance,
                     //      for whom victim is not gray;
                     uint32 grayLevel = Trinity::XP::GetGrayLevel(lvl);
-                    if (_victim->getLevel() > grayLevel && (!_maxNotGrayMember || _maxNotGrayMember->getLevel() < lvl))
+                    if (_victim->GetLevel() > grayLevel && (!_maxNotGrayMember || _maxNotGrayMember->GetLevel() < lvl))
                         _maxNotGrayMember = member;
                 }
         // 2.5. _isFullXP - flag identifying that for all group members victim is not gray,
         //      so 100% XP will be rewarded (50% otherwise).
-        _isFullXP = _maxNotGrayMember && (_maxLevel == _maxNotGrayMember->getLevel());
+        _isFullXP = _maxNotGrayMember && (_maxLevel == _maxNotGrayMember->GetLevel());
     }
     else
         _count = 1;
@@ -141,7 +141,7 @@ inline void KillRewarder::_RewardXP(Player* player, float rate)
         //        * set to 0 if player's level is more than maximum level of not gray member;
         //        * cut XP in half if _isFullXP is false.
         if (_maxNotGrayMember && player->IsAlive() &&
-            _maxNotGrayMember->getLevel() >= player->getLevel())
+            _maxNotGrayMember->GetLevel() >= player->GetLevel())
             xp = _isFullXP ?
             uint32(xp * rate) :             // Reward FULL XP if all group members are not gray.
             uint32(xp * rate / 2) + 1;      // Reward only HALF of XP if some of group members are gray.
@@ -151,8 +151,7 @@ inline void KillRewarder::_RewardXP(Player* player, float rate)
     if (xp)
     {
         // 4.2.2. Apply auras modifying rewarded XP (SPELL_AURA_MOD_XP_PCT).
-        for (auto const& aura : player->GetAuraEffectsByType(SPELL_AURA_MOD_XP_PCT))
-            AddPct(xp, aura->GetAmount());
+        xp *= player->GetTotalAuraMultiplier(SPELL_AURA_MOD_XP_PCT);
 
         // 4.2.3. Give XP to player.
         player->GiveXP(xp, _victim, _groupRate);
@@ -196,7 +195,7 @@ void KillRewarder::_RewardPlayer(Player* player, bool isDungeon)
     if (!_isPvP || _isBattleGround)
     {
         float const rate = _group ?
-            _groupRate * float(player->getLevel()) / _sumLevel : // Group rate depends on summary level.
+            _groupRate * float(player->GetLevel()) / _sumLevel : // Group rate depends on summary level.
             1.0f;                                                // Personal rate is 100%.
         if (_xp)
             // 4.2. Give XP.
@@ -236,10 +235,10 @@ void KillRewarder::_RewardGroup()
             {
                 if (Player* member = itr->GetSource())
                 {
-                    if (member->IsAtGroupRewardDistance(_victim))
+                    // Killer may not be at reward distance, check directly
+                    if (_killer == member || member->IsAtGroupRewardDistance(_victim))
                     {
                         _RewardPlayer(member, isDungeon);
-                        member->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_SPECIAL_PVP_KILL, 1, 0, _victim);
                     }
                 }
             }
@@ -270,5 +269,5 @@ void KillRewarder::Reward()
     if (Creature* victim = _victim->ToCreature())
         if (victim->IsDungeonBoss())
             if (InstanceScript* instance = _victim->GetInstanceScript())
-                instance->UpdateEncounterState(ENCOUNTER_CREDIT_KILL_CREATURE, _victim->GetEntry(), _victim);
+                instance->UpdateEncounterStateForKilledCreature(_victim->GetEntry(), _victim);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -27,11 +27,17 @@ npc_announcer_toc5
 EndContentData */
 
 #include "ScriptMgr.h"
+#include "GameObject.h"
+#include "InstanceScript.h"
+#include "Map.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
 #include "ScriptedCreature.h"
 #include "ScriptedGossip.h"
+#include "TemporarySummon.h"
 #include "trial_of_the_champion.h"
 #include "Vehicle.h"
-#include "Player.h"
 
 enum Yells
 {
@@ -342,28 +348,27 @@ public:
         {
             me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
 
-            if (instance->GetData(BOSS_BLACK_KNIGHT) == NOT_STARTED)
+            if (instance->GetBossState(BOSS_BLACK_KNIGHT) == NOT_STARTED)
             {
-                if (instance->GetData(BOSS_ARGENT_CHALLENGE_E) == NOT_STARTED && instance->GetData(BOSS_ARGENT_CHALLENGE_P) == NOT_STARTED)
+                if (instance->GetBossState(BOSS_ARGENT_CHALLENGE_E) == NOT_STARTED && instance->GetBossState(BOSS_ARGENT_CHALLENGE_P) == NOT_STARTED)
                 {
-                    if (instance->GetData(BOSS_GRAND_CHAMPIONS) == NOT_STARTED)
+                    if (instance->GetBossState(BOSS_GRAND_CHAMPIONS) == NOT_STARTED)
                         SetData(DATA_START, 0);
 
-                    if (instance->GetData(BOSS_GRAND_CHAMPIONS) == DONE)
+                    if (instance->GetBossState(BOSS_GRAND_CHAMPIONS) == DONE)
                         DoStartArgentChampionEncounter();
                 }
 
-               if ((instance->GetData(BOSS_GRAND_CHAMPIONS) == DONE &&
-                   instance->GetData(BOSS_ARGENT_CHALLENGE_E) == DONE) ||
-                   instance->GetData(BOSS_ARGENT_CHALLENGE_P) == DONE)
+               if ((instance->GetBossState(BOSS_GRAND_CHAMPIONS) == DONE &&
+                   instance->GetBossState(BOSS_ARGENT_CHALLENGE_E) == DONE) ||
+                   instance->GetBossState(BOSS_ARGENT_CHALLENGE_P) == DONE)
                     me->SummonCreature(VEHICLE_BLACK_KNIGHT, 769.834f, 651.915f, 447.035f, 0);
             }
         }
 
         void AggroAllPlayers(Creature* temp)
         {
-            Map::PlayerList const &PlList = me->GetMap()->GetPlayers();
-
+            Map::PlayerList const& PlList = me->GetMap()->GetPlayers();
             if (PlList.isEmpty())
                 return;
 
@@ -379,9 +384,7 @@ public:
                         temp->SetHomePosition(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), me->GetOrientation());
                         temp->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
                         temp->SetReactState(REACT_AGGRESSIVE);
-                        temp->SetInCombatWith(player);
-                        player->SetInCombatWith(temp);
-                        temp->AddThreat(player, 0.0f);
+                        AddThreat(player, 0.0f, temp);
                     }
                 }
             }
@@ -421,7 +424,7 @@ public:
 
         void JustSummoned(Creature* summon) override
         {
-            if (instance->GetData(BOSS_GRAND_CHAMPIONS) == NOT_STARTED)
+            if (instance->GetBossState(BOSS_GRAND_CHAMPIONS) == NOT_STARTED)
             {
                 summon->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
                 summon->SetReactState(REACT_PASSIVE);
@@ -446,48 +449,43 @@ public:
                     break;
             }
         }
+
+        bool OnGossipHello(Player* player) override
+        {
+            if (((instance->GetBossState(BOSS_GRAND_CHAMPIONS) == DONE &&
+                    instance->GetBossState(BOSS_BLACK_KNIGHT) == DONE &&
+                    instance->GetBossState(BOSS_ARGENT_CHALLENGE_E) == DONE) ||
+                    instance->GetBossState(BOSS_ARGENT_CHALLENGE_P) == DONE))
+                return false;
+
+            if (instance->GetBossState(BOSS_GRAND_CHAMPIONS) == NOT_STARTED &&
+                instance->GetBossState(BOSS_ARGENT_CHALLENGE_E) == NOT_STARTED &&
+                instance->GetBossState(BOSS_ARGENT_CHALLENGE_P) == NOT_STARTED &&
+                instance->GetBossState(BOSS_BLACK_KNIGHT) == NOT_STARTED)
+                AddGossipItemFor(player, GOSSIP_ICON_CHAT, GOSSIP_START_EVENT1, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 1);
+            else
+                AddGossipItemFor(player, GOSSIP_ICON_CHAT, GOSSIP_START_EVENT2, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 1);
+
+            SendGossipMenuFor(player, player->GetGossipTextId(me), me->GetGUID());
+            return true;
+        }
+
+        bool OnGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
+        {
+            uint32 const action = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);
+            ClearGossipMenuFor(player);
+            if (action == GOSSIP_ACTION_INFO_DEF + 1)
+            {
+                CloseGossipMenuFor(player);
+                StartEncounter();
+            }
+            return true;
+        }
     };
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_announcer_toc5AI>(creature);
-    }
-
-    bool OnGossipHello(Player* player, Creature* creature) override
-    {
-        InstanceScript* instance = creature->GetInstanceScript();
-
-        if (instance &&
-            ((instance->GetData(BOSS_GRAND_CHAMPIONS) == DONE &&
-            instance->GetData(BOSS_BLACK_KNIGHT) == DONE &&
-            instance->GetData(BOSS_ARGENT_CHALLENGE_E) == DONE) ||
-            instance->GetData(BOSS_ARGENT_CHALLENGE_P) == DONE))
-            return false;
-
-        if (instance &&
-            instance->GetData(BOSS_GRAND_CHAMPIONS) == NOT_STARTED &&
-            instance->GetData(BOSS_ARGENT_CHALLENGE_E) == NOT_STARTED &&
-            instance->GetData(BOSS_ARGENT_CHALLENGE_P) == NOT_STARTED &&
-            instance->GetData(BOSS_BLACK_KNIGHT) == NOT_STARTED)
-            AddGossipItemFor(player, GOSSIP_ICON_CHAT, GOSSIP_START_EVENT1, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF+1);
-        else if (instance)
-            AddGossipItemFor(player, GOSSIP_ICON_CHAT, GOSSIP_START_EVENT2, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF+1);
-
-        SendGossipMenuFor(player, player->GetGossipTextId(creature), creature->GetGUID());
-
-        return true;
-    }
-
-    bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action) override
-    {
-        ClearGossipMenuFor(player);
-        if (action == GOSSIP_ACTION_INFO_DEF+1)
-        {
-            CloseGossipMenuFor(player);
-            ENSURE_AI(npc_announcer_toc5::npc_announcer_toc5AI, creature->AI())->StartEncounter();
-        }
-
-        return true;
+        return GetTrialOfTheChampionAI<npc_announcer_toc5AI>(creature);
     }
 };
 

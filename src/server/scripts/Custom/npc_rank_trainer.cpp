@@ -5,6 +5,7 @@
 #include "DatabaseEnv.h"
 #include "SpellMgr.h"
 #include "World.h"
+#include "ScriptMgr.h"
 
 constexpr uint32 trainerEntry = 69209;
 constexpr uint32 limitPerPage = 5;
@@ -22,7 +23,7 @@ enum class GossipOptions : uint32
 void LoadCreatureSpells()
 {
 	trainerSpells.clear();
-	auto result = WorldDatabase.PQuery("SELECT SpellID, ReqLevel FROM npc_trainer WHERE ID = %u", trainerEntry);
+	auto result = WorldDatabase.PQuery("SELECT SpellID, ReqLevel FROM trainer_spell WHERE TrainerId = %u", trainerEntry);
 	if (!result)
 		return;
 	uint32 index = 0;
@@ -51,12 +52,12 @@ public:
 	}
 };
 
-struct npc_rank_trainer : public CreatureScript
+struct npc_rank_trainer : public ScriptedAI
 {
 public:
-	npc_rank_trainer() : CreatureScript("npc_rank_trainer") {}
+	npc_rank_trainer(Creature* creature) : ScriptedAI(creature) {}
 
-	bool OnGossipHello(Player* player, Creature* creature) override
+	bool OnGossipHello(Player* player) override
 	{
 		ClearGossipMenuFor(player);
 		uint32 index = 0;
@@ -70,7 +71,7 @@ public:
 					index++;
 					continue;
 				}
-				if (player->getLevel() < trainerSpells[index].second)
+				if (player->GetLevel() < trainerSpells[index].second)
 				{
 					index++;
 					continue;
@@ -96,12 +97,14 @@ public:
 			AddGossipItemFor(player, 0, "Next Page", counter, index);
 
 		AddGossipItemFor(player, 0, "Close Menu", GOSSIP_SENDER_MAIN, static_cast<uint32>(GossipOptions::CloseMenu));
-		SendGossipMenuFor(player, DEFAULT_GOSSIP_MESSAGE, creature->GetGUID());
+		SendGossipMenuFor(player, DEFAULT_GOSSIP_MESSAGE, me->GetGUID());
 		return true;
 	}
 
-	bool OnGossipSelect(Player* player, Creature* creature, uint32 sender, uint32 action) override
+	bool OnGossipSelect(Player* player, uint32 senders, uint32 gossipInfo) override
 	{
+        auto sender = player->PlayerTalkClass->GetGossipOptionSender(gossipInfo);
+        auto action = player->PlayerTalkClass->GetGossipOptionAction(gossipInfo);
 		auto sourcedEnum = static_cast<GossipOptions>(action);
 		ClearGossipMenuFor(player);
 
@@ -110,9 +113,9 @@ public:
 		case GossipOptions::Learn:
 		{
 			player->LearnSpell(sender, false);
-			creature->SendPlaySpellVisual(179);
-			creature->SendPlaySpellImpact(player->GetGUID(), 362);
-			OnGossipHello(player, creature);
+            me->SendPlaySpellVisual(179);
+            me->SendPlaySpellImpact(player->GetGUID(), 362);
+			OnGossipHello(player);
 		}
 		break;
 
@@ -131,7 +134,7 @@ public:
 						index++;
 						continue;
 					}
-					if (player->getLevel() < trainerSpells[index].second)
+					if (player->GetLevel() < trainerSpells[index].second)
 					{
 						index++;
 						continue;
@@ -158,7 +161,7 @@ public:
 				AddGossipItemFor(player, 0, "Next Page", counter + limitPerPage, index);
 
 			AddGossipItemFor(player, 0, "Close Menu", GOSSIP_SENDER_MAIN, static_cast<uint32>(GossipOptions::CloseMenu));
-			SendGossipMenuFor(player, DEFAULT_GOSSIP_MESSAGE, creature->GetGUID());
+			SendGossipMenuFor(player, DEFAULT_GOSSIP_MESSAGE, me->GetGUID());
 		}
 		break;
 		}
@@ -168,6 +171,6 @@ public:
 
 void AddSC_npc_rank_trainer()
 {
-	new npc_rank_trainer();
+	RegisterCreatureAI(npc_rank_trainer);
 	new trainer_spell_loader();
 }

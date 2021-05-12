@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2011 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -22,9 +21,9 @@
 #include "PathCommon.h"
 #include "WorldModel.h"
 
-#include "G3D/Array.h"
-#include "G3D/Vector3.h"
-#include "G3D/Matrix3.h"
+#include <G3D/Array.h>
+#include <G3D/Vector3.h>
+#include <G3D/Matrix3.h>
 
 namespace MMAP
 {
@@ -81,11 +80,11 @@ namespace MMAP
             TerrainBuilder(bool skipLiquid);
             ~TerrainBuilder();
 
-            TerrainBuilder(const TerrainBuilder &tb) = delete;
+            TerrainBuilder(TerrainBuilder const& tb) = delete;
 
             void loadMap(uint32 mapID, uint32 tileX, uint32 tileY, MeshData &meshData);
             bool loadVMap(uint32 mapID, uint32 tileX, uint32 tileY, MeshData &meshData);
-            void loadOffMeshConnections(uint32 mapID, uint32 tileX, uint32 tileY, MeshData &meshData, const char* offMeshFilePath);
+            void loadOffMeshConnections(uint32 mapID, uint32 tileX, uint32 tileY, MeshData &meshData, char const* offMeshFilePath);
 
             bool usesLiquids() const { return !m_skipLiquid; }
 
@@ -124,4 +123,3 @@ namespace MMAP
 }
 
 #endif
-

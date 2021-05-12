@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,8 +23,10 @@ SDCategory: Halls of Lightning
 EndScriptData */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
 #include "halls_of_lightning.h"
+#include "InstanceScript.h"
+#include "ObjectAccessor.h"
+#include "ScriptedCreature.h"
 
 enum Yells
 {
@@ -99,7 +100,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_bjarngrimAI>(creature);
+        return GetHallsOfLightningAI<boss_bjarngrimAI>(creature);
     }
 
     struct boss_bjarngrimAI : public ScriptedAI
@@ -197,7 +198,7 @@ public:
             ScriptedAI::EnterEvadeMode(why);
         }
 
-        void EnterCombat(Unit* /*who*/) override
+        void JustEngagedWith(Unit* /*who*/) override
         {
             Talk(SAY_AGGRO);
 
@@ -392,7 +393,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_stormforged_lieutenantAI>(creature);
+        return GetHallsOfLightningAI<npc_stormforged_lieutenantAI>(creature);
     }
 
     struct npc_stormforged_lieutenantAI : public ScriptedAI
@@ -419,7 +420,7 @@ public:
             Initialize();
         }
 
-        void EnterCombat(Unit* who) override
+        void JustEngagedWith(Unit* who) override
         {
             if (Creature* pBjarngrim = ObjectAccessor::GetCreature(*me, instance->GetGuidData(DATA_BJARNGRIM)))
             {

@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,9 +23,13 @@ SDCategory: Coilfang Resevoir, Serpent Shrine Cavern
 EndScriptData */
 
 #include "ScriptMgr.h"
+#include "GameObject.h"
+#include "GameObjectAI.h"
 #include "InstanceScript.h"
-#include "serpent_shrine.h"
+#include "Log.h"
+#include "Map.h"
 #include "Player.h"
+#include "serpent_shrine.h"
 #include "TemporarySummon.h"
 
 #define MAX_ENCOUNTER 6
@@ -44,7 +47,6 @@ enum Misc
     // Misc
     MIN_KILLS                       = 30
 };
-
 
 //NOTE: there are 6 platforms
 //there should be 3 shatterers and 2 priestess on all platforms, total of 30 elites, else it won't work!
@@ -64,28 +66,34 @@ class go_bridge_console : public GameObjectScript
     public:
         go_bridge_console() : GameObjectScript("go_bridge_console") { }
 
-        bool OnGossipHello(Player* /*player*/, GameObject* go) override
+        struct go_bridge_consoleAI : public GameObjectAI
         {
-            InstanceScript* instance = go->GetInstanceScript();
+            go_bridge_consoleAI(GameObject* go) : GameObjectAI(go), instance(go->GetInstanceScript()) { }
 
-            if (!instance)
-                return false;
+            InstanceScript* instance;
 
-            if (instance)
-                instance->SetData(DATA_CONTROL_CONSOLE, DONE);
+            bool OnGossipHello(Player* /*player*/) override
+            {
+                if (instance)
+                    instance->SetData(DATA_CONTROL_CONSOLE, DONE);
+                return true;
+            }
+        };
 
-            return true;
+        GameObjectAI* GetAI(GameObject* go) const override
+        {
+            return GetSerpentshrineCavernAI<go_bridge_consoleAI>(go);
         }
 };
 
 class instance_serpent_shrine : public InstanceMapScript
 {
     public:
-        instance_serpent_shrine() : InstanceMapScript("instance_serpent_shrine", 548) { }
+        instance_serpent_shrine() : InstanceMapScript(SSCScriptName, 548) { }
 
         struct instance_serpentshrine_cavern_InstanceMapScript : public InstanceScript
         {
-            instance_serpentshrine_cavern_InstanceMapScript(Map* map) : InstanceScript(map)
+            instance_serpentshrine_cavern_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
             {
                 SetHeaders(DataHeader);
                 memset(&m_auiEncounter, 0, sizeof(m_auiEncounter));
@@ -123,7 +131,7 @@ class instance_serpent_shrine : public InstanceMapScript
                     else
                         Water = WATERSTATE_FRENZY;
 
-                    Map::PlayerList const &PlayerList = instance->GetPlayers();
+                    Map::PlayerList const& PlayerList = instance->GetPlayers();
                     if (PlayerList.isEmpty())
                         return;
                     for (Map::PlayerList::const_iterator i = PlayerList.begin(); i != PlayerList.end(); ++i)
@@ -134,17 +142,16 @@ class instance_serpent_shrine : public InstanceMapScript
                             {
                                 if (Water == WATERSTATE_SCALDING)
                                 {
-
                                     if (!player->HasAura(SPELL_SCALDINGWATER))
-                                    {
                                         player->CastSpell(player, SPELL_SCALDINGWATER, true);
-                                    }
-                                } else if (Water == WATERSTATE_FRENZY)
+
+                                }
+                                else
                                 {
                                     //spawn frenzy
                                     if (DoSpawnFrenzy)
                                     {
-                                        if (Creature* frenzy = player->SummonCreature(NPC_COILFANG_FRENZY, player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetOrientation(), TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 2000))
+                                        if (Creature* frenzy = player->SummonCreature(NPC_COILFANG_FRENZY, player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetOrientation(), TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 2s))
                                         {
                                             frenzy->Attack(player, false);
                                             frenzy->SetSwim(true);
@@ -180,18 +187,22 @@ class instance_serpent_shrine : public InstanceMapScript
                     case 184568:
                         ControlConsole = go->GetGUID();
                         go->setActive(true);
+                        go->SetFarVisible(true);
                         break;
                     case 184203:
                         BridgePart[0] = go->GetGUID();
                         go->setActive(true);
+                        go->SetFarVisible(true);
                         break;
                     case 184204:
                         BridgePart[1] = go->GetGUID();
                         go->setActive(true);
+                        go->SetFarVisible(true);
                         break;
                     case 184205:
                         BridgePart[2] = go->GetGUID();
                         go->setActive(true);
+                        go->SetFarVisible(true);
                         break;
                     default:
                         break;
@@ -383,7 +394,7 @@ class instance_serpent_shrine : public InstanceMapScript
                 return stream.str();
             }
 
-            void Load(const char* in) override
+            void Load(char const* in) override
             {
                 if (!in)
                 {

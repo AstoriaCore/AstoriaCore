@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,16 +15,18 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "Containers.h"
-#include "Log.h"
-#include "Item.h"
-#include "World.h"
-#include "Config.h"
-#include "AccountMgr.h"
-#include "AuctionHouseMgr.h"
 #include "AuctionHouseBot.h"
+#include "AccountMgr.h"
 #include "AuctionHouseBotBuyer.h"
 #include "AuctionHouseBotSeller.h"
+#include "AuctionHouseMgr.h"
+#include "Config.h"
+#include "Containers.h"
+#include "DatabaseEnv.h"
+#include "GameTime.h"
+#include "Item.h"
+#include "Log.h"
+#include "World.h"
 
 AuctionBotConfig* AuctionBotConfig::instance()
 {
@@ -55,6 +57,14 @@ bool AuctionBotConfig::Initialize()
     if (!GetConfig(CONFIG_AHBOT_BUYER_ALLIANCE_ENABLED) && !GetConfig(CONFIG_AHBOT_BUYER_HORDE_ENABLED) && !GetConfig(CONFIG_AHBOT_BUYER_NEUTRAL_ENABLED))
         TC_LOG_INFO("ahbot", "AuctionHouseBot BUYER is disabled!");
 
+    if (sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_AUCTION))
+    {
+        TC_LOG_INFO("ahbot", "AllowTwoSide.Interaction.Auction is enabled, AuctionHouseBot faction-specific settings might not work as expected!");
+        if (GetConfig(CONFIG_AHBOT_ALLIANCE_ITEM_AMOUNT_RATIO) != 0 || GetConfig(CONFIG_AHBOT_HORDE_ITEM_AMOUNT_RATIO) != 0
+            || GetConfig(CONFIG_AHBOT_BUYER_ALLIANCE_ENABLED) || GetConfig(CONFIG_AHBOT_BUYER_HORDE_ENABLED))
+            TC_LOG_WARN("ahbot", "AllowTwoSide.Interaction.Auction is enabled, AuctionHouseBot should be enabled only for Neutral faction!");
+    }
+
     _itemsPerCycleBoost = GetConfig(CONFIG_AHBOT_ITEMS_PER_CYCLE_BOOST);
     _itemsPerCycleNormal = GetConfig(CONFIG_AHBOT_ITEMS_PER_CYCLE_NORMAL);
 
@@ -65,7 +75,7 @@ bool AuctionBotConfig::Initialize()
         {
             // find account guids associated with ahbot account
             uint32 count = 0;
-            PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARS_BY_ACCOUNT_ID);
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARS_BY_ACCOUNT_ID);
             stmt->setUInt32(0, ahBotAccId);
             if (PreparedQueryResult result = CharacterDatabase.Query(stmt))
             {
@@ -164,7 +174,7 @@ void AuctionBotConfig::GetConfigFromFile()
     SetConfig(CONFIG_AHBOT_BIND_QUEST, "AuctionHouseBot.Bind.Quest", false);
     SetConfig(CONFIG_AHBOT_LOCKBOX_ENABLED, "AuctionHouseBot.LockBox.Enabled", false);
 
-    SetConfig(CONFIG_AHBOT_BUYPRICE_SELLER, "AuctionHouseBot.BuyPrice.Seller", true);
+    SetConfig(CONFIG_AHBOT_BUYPRICE_SELLER, "AuctionHouseBot.BuyPrice.Seller", false);
 
     SetConfig(CONFIG_AHBOT_ITEMS_PER_CYCLE_BOOST, "AuctionHouseBot.ItemsPerCycle.Boost", 1000);
     SetConfig(CONFIG_AHBOT_ITEMS_PER_CYCLE_NORMAL, "AuctionHouseBot.ItemsPerCycle.Normal", 20);
@@ -184,21 +194,21 @@ void AuctionBotConfig::GetConfigFromFile()
     SetConfig(CONFIG_AHBOT_ITEM_ORANGE_AMOUNT, "AuctionHouseBot.Items.Amount.Orange", 0);
     SetConfig(CONFIG_AHBOT_ITEM_YELLOW_AMOUNT, "AuctionHouseBot.Items.Amount.Yellow", 0);
 
-    SetConfigMax(CONFIG_AHBOT_CLASS_CONSUMABLE_AMOUNT, "AuctionHouseBot.Class.Consumable", 6, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_CONTAINER_AMOUNT, "AuctionHouseBot.Class.Container", 4, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_WEAPON_AMOUNT, "AuctionHouseBot.Class.Weapon", 8, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_GEM_AMOUNT, "AuctionHouseBot.Class.Gem", 3, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_ARMOR_AMOUNT, "AuctionHouseBot.Class.Armor", 8, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_REAGENT_AMOUNT, "AuctionHouseBot.Class.Reagent", 1, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_PROJECTILE_AMOUNT, "AuctionHouseBot.Class.Projectile", 2, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_TRADEGOOD_AMOUNT, "AuctionHouseBot.Class.TradeGood", 10, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_GENERIC_AMOUNT, "AuctionHouseBot.Class.Generic", 1, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_RECIPE_AMOUNT, "AuctionHouseBot.Class.Recipe", 6, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_QUIVER_AMOUNT, "AuctionHouseBot.Class.Quiver", 1, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_QUEST_AMOUNT, "AuctionHouseBot.Class.Quest", 1, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_KEY_AMOUNT, "AuctionHouseBot.Class.Key", 1, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_MISC_AMOUNT, "AuctionHouseBot.Class.Misc", 5, 10);
-    SetConfigMax(CONFIG_AHBOT_CLASS_GLYPH_AMOUNT, "AuctionHouseBot.Class.Glyph", 3, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_CONSUMABLE_PRIORITY, "AuctionHouseBot.Class.Consumable", 6, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_CONTAINER_PRIORITY, "AuctionHouseBot.Class.Container", 4, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_WEAPON_PRIORITY, "AuctionHouseBot.Class.Weapon", 8, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_GEM_PRIORITY, "AuctionHouseBot.Class.Gem", 3, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_ARMOR_PRIORITY, "AuctionHouseBot.Class.Armor", 8, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_REAGENT_PRIORITY, "AuctionHouseBot.Class.Reagent", 1, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_PROJECTILE_PRIORITY, "AuctionHouseBot.Class.Projectile", 2, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_TRADEGOOD_PRIORITY, "AuctionHouseBot.Class.TradeGood", 10, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_GENERIC_PRIORITY, "AuctionHouseBot.Class.Generic", 1, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_RECIPE_PRIORITY, "AuctionHouseBot.Class.Recipe", 6, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_QUIVER_PRIORITY, "AuctionHouseBot.Class.Quiver", 1, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_QUEST_PRIORITY, "AuctionHouseBot.Class.Quest", 1, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_KEY_PRIORITY, "AuctionHouseBot.Class.Key", 1, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_MISC_PRIORITY, "AuctionHouseBot.Class.Misc", 5, 10);
+    SetConfigMax(CONFIG_AHBOT_CLASS_GLYPH_PRIORITY, "AuctionHouseBot.Class.Glyph", 3, 10);
 
     SetConfig(CONFIG_AHBOT_ALLIANCE_PRICE_RATIO, "AuctionHouseBot.Alliance.Price.Ratio", 100);
     SetConfig(CONFIG_AHBOT_HORDE_PRICE_RATIO, "AuctionHouseBot.Horde.Price.Ratio", 100);
@@ -293,6 +303,9 @@ void AuctionBotConfig::GetConfigFromFile()
     SetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_KEY, "AuctionHouseBot.Class.RandomStackRatio.Key", 100);
     SetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_MISC, "AuctionHouseBot.Class.RandomStackRatio.Misc", 100);
     SetConfig(CONFIG_AHBOT_CLASS_RANDOMSTACKRATIO_GLYPH, "AuctionHouseBot.Class.RandomStackRatio.Glyph", 0);
+
+    SetConfig(CONFIG_AHBOT_BIDPRICE_MIN, "AuctionHouseBot.BidPrice.Min", 0.6f);
+    SetConfig(CONFIG_AHBOT_BIDPRICE_MAX, "AuctionHouseBot.BidPrice.Max", 0.9f);
 }
 
 char const* AuctionBotConfig::GetHouseTypeName(AuctionHouseType houseType)
@@ -345,6 +358,19 @@ uint32 AuctionBotConfig::GetConfigItemAmountRatio(AuctionHouseType houseType) co
             return GetConfig(CONFIG_AHBOT_HORDE_ITEM_AMOUNT_RATIO);
         default:
             return GetConfig(CONFIG_AHBOT_NEUTRAL_ITEM_AMOUNT_RATIO);
+    }
+}
+
+uint32 AuctionBotConfig::GetConfigPriceRatio(AuctionHouseType houseType) const
+{
+    switch (houseType)
+    {
+        case AUCTION_HOUSE_ALLIANCE:
+            return GetConfig(CONFIG_AHBOT_ALLIANCE_PRICE_RATIO);
+        case AUCTION_HOUSE_HORDE:
+            return GetConfig(CONFIG_AHBOT_HORDE_PRICE_RATIO);
+        default:
+            return GetConfig(CONFIG_AHBOT_NEUTRAL_PRICE_RATIO);
     }
 }
 
@@ -437,10 +463,10 @@ void AuctionHouseBot::SetItemsRatioForHouse(AuctionHouseType house, uint32 val)
         _seller->SetItemsRatioForHouse(house, val);
 }
 
-void AuctionHouseBot::SetItemsAmount(uint32(&vals)[MAX_AUCTION_QUALITY])
+void AuctionHouseBot::SetItemsAmount(std::array<uint32, MAX_AUCTION_QUALITY> const& amounts)
 {
     if (_seller)
-        _seller->SetItemsAmount(vals);
+        _seller->SetItemsAmount(amounts);
 }
 
 void AuctionHouseBot::SetItemsAmountForQuality(AuctionQuality quality, uint32 val)
@@ -455,16 +481,16 @@ void AuctionHouseBot::ReloadAllConfig()
     InitializeAgents();
 }
 
-void AuctionHouseBot::PrepareStatusInfos(AuctionHouseBotStatusInfo& statusInfo)
+void AuctionHouseBot::PrepareStatusInfos(std::unordered_map<AuctionHouseType, AuctionHouseBotStatusInfoPerType>& statusInfo)
 {
-    for (uint32 i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
+    for (AuctionHouseType ahType : EnumUtils::Iterate<AuctionHouseType>())
     {
-        statusInfo[i].ItemsCount = 0;
+        statusInfo[ahType].ItemsCount = 0;
 
-        for (int j = 0; j < MAX_AUCTION_QUALITY; ++j)
-            statusInfo[i].QualityInfo[j] = 0;
+        for (AuctionQuality quality : EnumUtils::Iterate<AuctionQuality>())
+            statusInfo[ahType].QualityInfo[quality] = 0;
 
-        AuctionHouseObject* auctionHouse = sAuctionMgr->GetAuctionsMap(AuctionHouseType(i));
+        AuctionHouseObject* auctionHouse = sAuctionMgr->GetAuctionsMap(ahType);
         for (AuctionHouseObject::AuctionEntryMap::const_iterator itr = auctionHouse->GetAuctionsBegin(); itr != auctionHouse->GetAuctionsEnd(); ++itr)
         {
             AuctionEntry* auctionEntry = itr->second;
@@ -474,9 +500,9 @@ void AuctionHouseBot::PrepareStatusInfos(AuctionHouseBotStatusInfo& statusInfo)
                 if (!auctionEntry->owner || sAuctionBotConfig->IsBotChar(auctionEntry->owner)) // Add only ahbot items
                 {
                     if (prototype->Quality < MAX_AUCTION_QUALITY)
-                        ++statusInfo[i].QualityInfo[prototype->Quality];
+                        ++statusInfo[ahType].QualityInfo[AuctionQuality(prototype->Quality)];
 
-                    ++statusInfo[i].ItemsCount;
+                    ++statusInfo[ahType].ItemsCount;
                 }
             }
         }
@@ -491,7 +517,7 @@ void AuctionHouseBot::Rebuild(bool all)
         for (AuctionHouseObject::AuctionEntryMap::const_iterator itr = auctionHouse->GetAuctionsBegin(); itr != auctionHouse->GetAuctionsEnd(); ++itr)
             if (!itr->second->owner || sAuctionBotConfig->IsBotChar(itr->second->owner)) // ahbot auction
                 if (all || itr->second->bid == 0)           // expire now auction if no bid or forced
-                    itr->second->expire_time = sWorld->GetGameTime();
+                    itr->second->expire_time = GameTime::GetGameTime();
     }
 }
 

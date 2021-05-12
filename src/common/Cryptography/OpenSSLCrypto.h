@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,6 +19,7 @@
 #define OPENSSL_CRYPTO_H
 
 #include "Define.h"
+#include <openssl/opensslv.h>
 
 /**
 * A group of functions which setup openssl crypto module to work properly in multithreaded enviroment
@@ -26,10 +27,17 @@
 */
 namespace OpenSSLCrypto
 {
+
+#if defined(OPENSSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER < 0x1010000fL
     /// Needs to be called before threads using openssl are spawned
     TC_COMMON_API void threadsSetup();
     /// Needs to be called after threads using openssl are despawned
     TC_COMMON_API void threadsCleanup();
+#else
+    void threadsSetup() { };
+    void threadsCleanup() { };
+#endif
+
 }
 
 #endif

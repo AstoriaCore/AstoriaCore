@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,13 +15,18 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "Player.h"
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "ScriptedGossip.h"
+#include "GameObject.h"
+#include "GameObjectAI.h"
+#include "InstanceScript.h"
+#include "Map.h"
+#include "MotionMaster.h"
+#include "Player.h"
 #include "ScriptedEscortAI.h"
+#include "ScriptedGossip.h"
 #include "SpellAuraEffects.h"
 #include "SpellScript.h"
+#include "TemporarySummon.h"
 #include "violet_hold.h"
 
 /*
@@ -114,7 +119,9 @@ enum AzureSaboteurSpells
 
 enum TrashDoorSpell
 {
-    SPELL_DESTROY_DOOR_SEAL     = 58040
+    SPELL_DESTROY_DOOR_SEAL             = 58040,   // > 31326 Corrupt Medivh
+    SPELL_PRISON_DOOR_SEAL_WEAKEN       = 58041,   // NYI, no effect, maybe > 32613 Medivh's Shield -5%
+    SPELL_DOOR_BROKEN                   = 58043    // NYI, no effect, maybe > 31327 Medivh Dies!
 };
 
 enum DefenseSystemSpells
@@ -126,12 +133,54 @@ enum DefenseSystemSpells
 
 enum MiscSpells
 {
-    SPELL_PORTAL_PERIODIC           = 58008,
-    SPELL_PORTAL_CHANNEL            = 58012,
-    SPELL_CRYSTAL_ACTIVATION        = 57804,
+    SPELL_CRYSTAL_ACTIVATION            = 57804,
 
-    SPELL_TELEPORT_PLAYER           = 62138,
-    SPELL_TELEPORT_PLAYER_EFFECT    = 62139
+    SPELL_ATTACK_VIOLET_HOLD_GUARD      = 57936,   // NYI, no effect
+
+    // Turned out almost all spells from BM were copied to create Violet Hold. Not only serverside spells and
+    // not only their effects but also attributes and icons. The scripts were also copied, possibly unchanged
+    SPELL_PORTAL_1_READY                = 57995,   // NYI, effect copied from 'Time Rift 1 Ready'
+    SPELL_PORTAL_2_READY                = 57996,   // NYI, effect copied from 'Time Rift 2 Ready'
+    SPELL_PORTAL_3_READY                = 57997,   // NYI, effect copied from 'Time Rift 3 Ready'
+    SPELL_PORTAL_4_READY                = 57998,   // NYI, effect copied from 'Time Rift 4 Ready'
+    SPELL_PORTAL_5_READY                = 57999,   // NYI, effect copied from 'Time Rift 1 Ready', only 4 portals in BM
+
+    SPELL_SUMMON_PORTAL                 = 58002,   // NYI, effect copied from 'Summon Time Rift'
+    SPELL_SUMMON_PORTAL_EFFECT_1        = 58003,   // NYI, no effect, > Summon Time Rift Effect
+    SPELL_SUMMON_PORTAL_EFFECT_2        = 58004,   // NYI, no effect, > Summon Time Rift Effect
+    SPELL_SUMMON_PORTAL_EFFECT_3        = 58005,   // NYI, no effect, > Summon Time Rift Effect
+    SPELL_SUMMON_PORTAL_EFFECT_4        = 58006,   // NYI, no effect, > Summon Time Rift Effect
+    SPELL_SUMMON_PORTAL_EFFECT_5        = 58007,   // NYI, no effect, > Summon Time Rift Effect
+    SPELL_PORTAL_PERIODIC               = 58008,   // > Time Rift Periodic
+    SPELL_PORTAL_CHANNEL_TRIGGER        = 58011,   // NYI, effect copied from 'Time Rift Channel Trigger'
+    SPELL_PORTAL_CHANNEL                = 58012,   // > Time Rift Channel
+    SPELL_CLOSE_PORTAL_TRIGGER          = 58014,   // NYI, effect copied from 'Close Time Rift Trigger'
+    SPELL_CLOSE_PORTAL_EFFECT           = 58018,   // NYI, effect copied from 'Close Time Rift Effect'
+    SPELL_PORTAL_READY_PRIMER           = 58019,   // NYI, effect copied from 'Time Rift Ready Primer'
+
+    SPELL_SUMMON_PORTAL_GUARDIAN        = 58028,   // NYI, summons 30660
+    SPELL_SUMMON_PORTAL_GUARDIAN_2      = 58029,   // NYI, summons 30892
+    SPELL_SUMMON_PORTAL_KEEPER          = 58030,   // NYI, summons 30695
+    SPELL_SUMMON_PORTAL_KEEPER_2        = 58031,   // NYI, summons 30893
+    SPELL_SUMMON_AZURE_BINDER           = 58034,   // NYI, summons 30663
+    SPELL_SUMMON_AZURE_BINDER_2         = 58086,   // NYI, summons 30918
+    SPELL_SUMMON_AZURE_INVADER          = 58087,   // NYI, summons 30661
+    SPELL_SUMMON_AZURE_INVADER_2        = 58088,   // NYI, summons 30961
+    SPELL_SUMMON_AZURE_SPELLBREAKER     = 58089,   // NYI, summons 30662
+    SPELL_SUMMON_AZURE_SPELLBREAKER_2   = 58090,   // NYI, summons 30962
+    SPELL_SUMMON_AZURE_MAGE_SLAYER      = 58091,   // NYI, summons 30664
+    SPELL_SUMMON_AZURE_MAGE_SLAYER_2    = 58092,   // NYI, summons 30963
+    SPELL_SUMMON_VETERAN_MAGE_HUNTER    = 58093,   // NYI, summons 30665
+
+    SPELL_SUMMON_AZURE_CAPTAIN          = 60048,   // NYI, summons 30666
+    SPELL_SUMMON_AZURE_STALKER          = 60086,   // NYI, summons 32191
+    SPELL_SUMMON_AZURE_RAIDER           = 60049,   // NYI, summons 30668
+    SPELL_SUMMON_AZURE_RAIDER_2         = 60092,   // NYI, summons 30668
+    SPELL_SUMMON_AZURE_SORCEROR         = 60050,   // NYI, summons 30667
+    SPELL_SUMMON_AZURE_SORCEROR_2       = 60093,   // NYI, summons 30667
+
+    SPELL_TELEPORT_PLAYER               = 62138,
+    SPELL_TELEPORT_PLAYER_EFFECT        = 62139
 };
 
 enum MiscData
@@ -155,7 +204,7 @@ enum Sinclari
     SAY_SINCLARI_PORTAL_KEEPER      = 2
 };
 
-G3D::Vector3 const FirstPortalWPs[6] =
+Position const FirstPortalWPs[] =
 {
     {1877.670288f, 842.280273f, 43.333591f},
     {1877.338867f, 834.615356f, 38.762287f},
@@ -166,7 +215,7 @@ G3D::Vector3 const FirstPortalWPs[6] =
     //{1825.736084f, 807.305847f, 44.363785f}
 };
 
-G3D::Vector3 const SecondPortalFirstWPs[9] =
+Position const SecondPortalFirstWPs[] =
 {
     {1902.561401f, 853.334656f, 47.106117f},
     {1895.486084f, 855.376404f, 44.334591f},
@@ -180,7 +229,7 @@ G3D::Vector3 const SecondPortalFirstWPs[9] =
     //{1825.736084f, 807.305847f, 44.363785f}
 };
 
-G3D::Vector3 const SecondPortalSecondWPs[8] =
+Position const SecondPortalSecondWPs[] =
 {
     {1929.392212f, 837.614990f, 47.136166f},
     {1928.290649f, 824.750427f, 45.474411f},
@@ -193,7 +242,7 @@ G3D::Vector3 const SecondPortalSecondWPs[8] =
     //{1825.736084f, 807.305847f, 44.363785f}
 };
 
-G3D::Vector3 const ThirdPortalWPs[8] =
+Position const ThirdPortalWPs[] =
 {
     {1934.049438f, 815.778503f, 52.408699f},
     {1928.290649f, 824.750427f, 45.474411f},
@@ -206,7 +255,7 @@ G3D::Vector3 const ThirdPortalWPs[8] =
     //{1825.736084f, 807.305847f, 44.363785f}
 };
 
-G3D::Vector3 const FourthPortalWPs[9] =
+Position const FourthPortalWPs[] =
 {
     {1921.658447f, 761.657043f, 50.866741f},
     {1910.559814f, 755.780457f, 47.701447f},
@@ -220,7 +269,7 @@ G3D::Vector3 const FourthPortalWPs[9] =
     //{1827.100342f, 801.605957f, 44.363358f}
 };
 
-G3D::Vector3 const FifthPortalWPs[6] =
+Position const FifthPortalWPs[] =
 {
     {1887.398804f, 763.633240f, 47.666851f},
     {1879.020386f, 775.396973f, 38.705990f},
@@ -231,7 +280,7 @@ G3D::Vector3 const FifthPortalWPs[6] =
     //{1827.100342f, 801.605957f, 44.363358f}
 };
 
-G3D::Vector3 const SixthPoralWPs[4] =
+Position const SixthPortalWPs[] =
 {
     {1888.861084f, 805.074768f, 38.375790f},
     {1869.793823f, 804.135804f, 38.647018f},
@@ -240,13 +289,12 @@ G3D::Vector3 const SixthPoralWPs[4] =
     //{1826.889648f, 803.929993f, 44.363239f}
 };
 
-G3D::Vector3 const DefaultPortalWPs[1] =
+Position const DefaultPortalWPs[] =
 {
     { 1843.567017f, 804.288208f, 44.139091f }
 };
 
-uint32 const SaboteurMoraggPathSize = 5;
-G3D::Vector3 const SaboteurMoraggPath[SaboteurMoraggPathSize] = // sniff
+Position const SaboteurMoraggPath[] = // sniff
 {
     { 1886.251f, 803.0743f, 38.42326f },
     { 1885.71f,  799.8929f, 38.37241f },
@@ -255,8 +303,7 @@ G3D::Vector3 const SaboteurMoraggPath[SaboteurMoraggPathSize] = // sniff
     { 1894.603f, 739.9231f, 47.66684f },
 };
 
-uint32 const SaboteurErekemPathSize = 5;
-G3D::Vector3 const SaboteurErekemPath[SaboteurErekemPathSize] = // sniff
+Position const SaboteurErekemPath[] = // sniff
 {
     { 1886.251f, 803.0743f, 38.42326f },
     { 1881.047f, 829.6866f, 38.64856f },
@@ -265,24 +312,21 @@ G3D::Vector3 const SaboteurErekemPath[SaboteurErekemPathSize] = // sniff
     { 1873.747f, 864.1373f, 43.33349f }
 };
 
-uint32 const SaboteurIchoronPathSize = 3;
-G3D::Vector3 const SaboteurIchoronPath[SaboteurIchoronPathSize] = // sniff
+Position const SaboteurIchoronPath[] = // sniff
 {
     { 1886.251f, 803.0743f, 38.42326f },
     { 1888.672f, 801.2348f, 38.42305f },
     { 1901.987f, 793.3254f, 38.65126f }
 };
 
-uint32 const SaboteurLavanthorPathSize = 3;
-G3D::Vector3 const SaboteurLavanthorPath[SaboteurLavanthorPathSize] = // sniff
+Position const SaboteurLavanthorPath[] = // sniff
 {
     { 1886.251f, 803.0743f, 38.42326f },
     { 1867.925f, 778.8035f, 38.64702f },
     { 1853.304f, 759.0161f, 38.65761f }
 };
 
-uint32 const SaboteurXevozzPathSize = 4;
-G3D::Vector3 const SaboteurXevozzPath[SaboteurXevozzPathSize] = // sniff
+Position const SaboteurXevozzPath[] = // sniff
 {
     { 1886.251f, 803.0743f, 38.42326f },
     { 1889.096f, 810.0487f, 38.43871f },
@@ -290,8 +334,7 @@ G3D::Vector3 const SaboteurXevozzPath[SaboteurXevozzPathSize] = // sniff
     { 1906.666f, 842.3111f, 38.63351f }
 };
 
-uint32 const SaboteurZuramatPathSize = 7;
-G3D::Vector3 const SaboteurZuramatPath[SaboteurZuramatPathSize] = // sniff
+Position const SaboteurZuramatPath[] = // sniff
 {
     { 1886.251f, 803.0743f, 38.42326f },
     { 1889.69f,  807.0032f, 38.39914f },
@@ -316,30 +359,6 @@ class npc_sinclari_vh : public CreatureScript
 {
     public:
         npc_sinclari_vh() : CreatureScript("npc_sinclari_vh") { }
-
-        bool OnGossipHello(Player* player, Creature* creature) override
-        {
-            // override default gossip
-            if (InstanceScript* instance = creature->GetInstanceScript())
-            {
-                switch (instance->GetData(DATA_MAIN_EVENT_STATE))
-                {
-                    case IN_PROGRESS:
-                        player->PrepareGossipMenu(creature, GOSSIP_MENU_SEND_ME_IN, true);
-                        player->SendPreparedGossip(creature);
-                        return true;
-                    case DONE:
-                        return true; // NYI
-                    case NOT_STARTED:
-                    case FAIL:
-                    default:
-                        break;
-                }
-            }
-
-            // load default gossip
-            return false;
-        }
 
         struct npc_sinclariAI : public ScriptedAI
         {
@@ -369,7 +388,28 @@ class npc_sinclari_vh : public CreatureScript
                 }
             }
 
-            void sGossipSelect(Player* player, uint32 menuId, uint32 gossipListId) override
+            bool OnGossipHello(Player* player) override
+            {
+                // override default gossip
+                switch (_instance->GetData(DATA_MAIN_EVENT_STATE))
+                {
+                    case IN_PROGRESS:
+                        player->PrepareGossipMenu(me, GOSSIP_MENU_SEND_ME_IN, true);
+                        player->SendPreparedGossip(me);
+                        return true;
+                    case DONE:
+                        return true; // NYI
+                    case NOT_STARTED:
+                    case FAIL:
+                    default:
+                        break;
+                }
+
+                // load default gossip
+                return false;
+            }
+
+            bool OnGossipSelect(Player* player, uint32 menuId, uint32 gossipListId) override
             {
                 if (menuId == GOSSIP_MENU_START_ENCOUNTER && gossipListId == 0)
                 {
@@ -383,6 +423,7 @@ class npc_sinclari_vh : public CreatureScript
                     me->CastSpell(player, SPELL_TELEPORT_PLAYER, true);
                     player->PlayerTalkClass->SendCloseGossip();
                 }
+                return false;
             }
 
             void DoAction(int32 actionId) override
@@ -475,12 +516,12 @@ class npc_sinclari_vh : public CreatureScript
                             task.Repeat(Seconds(5));
                             break;
                         case 8:
-                            me->SetVisible(false);
+                            _instance->SetData(DATA_MAIN_EVENT_STATE, IN_PROGRESS);
                             task.Repeat(Seconds(1));
                             break;
                         case 9:
-                            _instance->SetData(DATA_MAIN_EVENT_STATE, IN_PROGRESS);
-                            // [1] GUID: Full: 0xF1300077C202E6DD Type: Creature Entry: 30658 Low: 190173
+                            // We should teleport inside if event is in progress with GOSSIP_MENU_SEND_ME_IN
+                            me->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
                             break;
                         default:
                             break;
@@ -544,41 +585,35 @@ class npc_azure_saboteur : public CreatureScript
                     _bossId = _instance->GetData(DATA_2ND_BOSS);
             }
 
+            template <size_t N>
+            void StartSmoothPath(Position const (&path)[N])
+            {
+                me->GetMotionMaster()->MoveSmoothPath(POINT_INTRO, &path[0], N, false);
+            }
+
             void StartMovement()
             {
-                uint32 pathSize = 0;
-                G3D::Vector3 const* path = nullptr;
-
                 switch (_bossId)
                 {
                     case DATA_MORAGG:
-                        pathSize = SaboteurMoraggPathSize;
-                        path = SaboteurMoraggPath;
+                        StartSmoothPath(SaboteurMoraggPath);
                         break;
                     case DATA_EREKEM:
-                        pathSize = SaboteurErekemPathSize;
-                        path = SaboteurErekemPath;
+                        StartSmoothPath(SaboteurErekemPath);
                         break;
                     case DATA_ICHORON:
-                        pathSize = SaboteurIchoronPathSize;
-                        path = SaboteurIchoronPath;
+                        StartSmoothPath(SaboteurIchoronPath);
                         break;
                     case DATA_LAVANTHOR:
-                        pathSize = SaboteurLavanthorPathSize;
-                        path = SaboteurLavanthorPath;
+                        StartSmoothPath(SaboteurLavanthorPath);
                         break;
                     case DATA_XEVOZZ:
-                        pathSize = SaboteurXevozzPathSize;
-                        path = SaboteurXevozzPath;
+                        StartSmoothPath(SaboteurXevozzPath);
                         break;
                     case DATA_ZURAMAT:
-                        pathSize = SaboteurZuramatPathSize;
-                        path = SaboteurZuramatPath;
+                        StartSmoothPath(SaboteurZuramatPath);
                         break;
                 }
-
-                if (path)
-                    me->GetMotionMaster()->MoveSmoothPath(POINT_INTRO, path, pathSize, false);
             }
 
             void Reset() override
@@ -594,7 +629,7 @@ class npc_azure_saboteur : public CreatureScript
             {
                 if (type == EFFECT_MOTION_TYPE && pointId == POINT_INTRO)
                 {
-                    _scheduler.Schedule(Seconds(0), [this](TaskContext task)
+                    _scheduler.Schedule(0s, [this](TaskContext task)
                     {
                         me->CastSpell(me, SPELL_SHIELD_DISRUPTION, false);
 
@@ -606,7 +641,7 @@ class npc_azure_saboteur : public CreatureScript
                             {
                                 _instance->SetData(DATA_START_BOSS_ENCOUNTER, 1);
                                 me->CastSpell(me, SPELL_TELEPORT_VISUAL, false);
-                                me->DespawnOrUnsummon(1000);
+                                me->DespawnOrUnsummon(1s);
                             });
                         }
                     });
@@ -653,7 +688,7 @@ struct npc_violet_hold_teleportation_portal_commonAI : public ScriptedAI
 
     void MoveInLineOfSight(Unit* /*who*/) override { }
 
-    void EnterCombat(Unit* /*who*/) override { }
+    void JustEngagedWith(Unit* /*who*/) override { }
 
     void JustSummoned(Creature* summon) override
     {
@@ -706,7 +741,7 @@ class npc_violet_hold_teleportation_portal : public CreatureScript
                     if (data == 1)
                     {
                         uint32 entry = RAND(NPC_PORTAL_GUARDIAN, NPC_PORTAL_KEEPER);
-                        if (Creature* portalKeeper = DoSummon(entry, me, 2.0f, 0, TEMPSUMMON_DEAD_DESPAWN))
+                        if (Creature* portalKeeper = DoSummon(entry, me, 2.0f, 0s, TEMPSUMMON_DEAD_DESPAWN))
                             me->CastSpell(portalKeeper, SPELL_PORTAL_CHANNEL, false);
 
                         if (Creature* sinclariTrigger = _instance->GetCreature(DATA_SINCLARI_TRIGGER))
@@ -723,7 +758,7 @@ class npc_violet_hold_teleportation_portal : public CreatureScript
                         while (k--)
                         {
                             uint32 entry = RAND(NPC_AZURE_INVADER_1, NPC_AZURE_INVADER_2, NPC_AZURE_SPELLBREAKER_1, NPC_AZURE_SPELLBREAKER_2, NPC_AZURE_MAGE_SLAYER_1, NPC_AZURE_MAGE_SLAYER_2, NPC_AZURE_BINDER_1, NPC_AZURE_BINDER_2);
-                            DoSummon(entry, me, 2.0f, 20000, TEMPSUMMON_DEAD_DESPAWN);
+                            DoSummon(entry, me, 2.0f, 20s, TEMPSUMMON_DEAD_DESPAWN);
                         }
                     }
                 }
@@ -766,7 +801,7 @@ class npc_violet_hold_teleportation_portal_elite : public CreatureScript
                     while (k--)
                     {
                         uint32 entry = RAND(NPC_AZURE_CAPTAIN_1, NPC_AZURE_RAIDER_1, NPC_AZURE_STALKER_1, NPC_AZURE_SORCEROR_1);
-                        DoSummon(entry, me, 2.0f, 20000, TEMPSUMMON_DEAD_DESPAWN);
+                        DoSummon(entry, me, 2.0f, 20s, TEMPSUMMON_DEAD_DESPAWN);
                     }
 
                     if (Creature* sinclariTrigger = _instance->GetCreature(DATA_SINCLARI_TRIGGER))
@@ -815,8 +850,12 @@ class npc_violet_hold_teleportation_portal_intro : public CreatureScript
 
                 _scheduler.Schedule(Seconds(15), [this](TaskContext task)
                 {
-                    uint32 entry = RAND(NPC_AZURE_INVADER_1, NPC_AZURE_MAGE_SLAYER_1, NPC_AZURE_BINDER_1);
-                    DoSummon(entry, me, 2.0f, 20000, TEMPSUMMON_DEAD_DESPAWN);
+                    // Limit the number of current summons
+                    if (_summons.size() < 3)
+                    {
+                        uint32 entry = RAND(NPC_AZURE_INVADER_1, NPC_AZURE_MAGE_SLAYER_1, NPC_AZURE_BINDER_1);
+                        DoSummon(entry, me, 2.0f, 20s, TEMPSUMMON_DEAD_DESPAWN);
+                    }
 
                     task.Repeat();
                 });
@@ -829,9 +868,9 @@ class npc_violet_hold_teleportation_portal_intro : public CreatureScript
         }
 };
 
-struct violet_hold_trashAI : public npc_escortAI
+struct violet_hold_trashAI : public EscortAI
 {
-    violet_hold_trashAI(Creature* creature) : npc_escortAI(creature)
+    violet_hold_trashAI(Creature* creature) : EscortAI(creature)
     {
         _instance = creature->GetInstanceScript();
 
@@ -850,73 +889,72 @@ struct violet_hold_trashAI : public npc_escortAI
         _scheduler.CancelAll();
     }
 
+    template <size_t N>
+    Position const* GetPathAndInitLastWaypointFrom(Position const (&path)[N])
+    {
+        _lastWaypointId = N - 1;
+        return &path[0];
+    }
+
     void SetData(uint32 type, uint32 data) override
     {
         if (type == DATA_PORTAL_LOCATION)
         {
-            G3D::Vector3 const* path = nullptr;
+            Position const* path = nullptr;
 
             switch (data)
             {
                 case 0:
-                    _lastWaypointId = 5;
-                    path = FirstPortalWPs;
+                    path = GetPathAndInitLastWaypointFrom(FirstPortalWPs);
                     break;
                 case 7:
                     switch (urand(0, 1))
                     {
                         case 0:
-                            _lastWaypointId = 8;
-                            path = SecondPortalFirstWPs;
+                            path = GetPathAndInitLastWaypointFrom(SecondPortalFirstWPs);
                             break;
                         case 1:
-                            _lastWaypointId = 7;
-                            path = SecondPortalSecondWPs;
+                            path = GetPathAndInitLastWaypointFrom(SecondPortalSecondWPs);
                             break;
                     }
                     break;
                 case 2:
-                    _lastWaypointId = 7;
-                    path = ThirdPortalWPs;
+                    path = GetPathAndInitLastWaypointFrom(ThirdPortalWPs);
                     break;
                 case 6:
-                    _lastWaypointId = 8;
-                    path = FourthPortalWPs;
+                    path = GetPathAndInitLastWaypointFrom(FourthPortalWPs);
                     break;
                 case 1:
-                    _lastWaypointId = 5;
-                    path = FifthPortalWPs;
+                    path = GetPathAndInitLastWaypointFrom(FifthPortalWPs);
                     break;
                 case 5:
-                    _lastWaypointId = 3;
-                    path = SixthPoralWPs;
+                    path = GetPathAndInitLastWaypointFrom(SixthPortalWPs);
                     break;
                 default:
-                    _lastWaypointId = 0;
-                    path = DefaultPortalWPs;
+                    path = GetPathAndInitLastWaypointFrom(DefaultPortalWPs);
                     break;
             }
 
             if (path)
             {
                 for (uint32 i = 0; i <= _lastWaypointId; i++)
-                    AddWaypoint(i, path[i].x + irand(-1, 1), path[i].y + irand(-1, 1), path[i].z, 0);
-                me->SetHomePosition(path[_lastWaypointId].x, path[_lastWaypointId].y, path[_lastWaypointId].z, float(M_PI));
+                    AddWaypoint(i, path[i].GetPositionX() + irand(-1, 1), path[i].GetPositionY() + irand(-1, 1), path[i].GetPositionZ(), 0);
+                me->SetHomePosition(path[_lastWaypointId].GetPositionX(), path[_lastWaypointId].GetPositionY(), path[_lastWaypointId].GetPositionZ(), float(M_PI));
             }
 
             Start(true, true);
         }
     }
 
-    void WaypointReached(uint32 waypointId) override
+    void WaypointReached(uint32 waypointId, uint32 /*pathId*/) override
     {
         if (waypointId == _lastWaypointId)
             CreatureStartAttackDoor();
     }
 
-    void EnterCombat(Unit* who) override
+    void JustEngagedWith(Unit* who) override
     {
-        npc_escortAI::EnterCombat(who);
+        EscortAI::JustEngagedWith(who);
         ScheduledTasks();
     }
 
@@ -929,7 +967,7 @@ struct violet_hold_trashAI : public npc_escortAI
             return;
 
         _scheduler.Update(diff,
-            std::bind(&npc_escortAI::DoMeleeAttackIfReady, this));
+            std::bind(&EscortAI::DoMeleeAttackIfReady, this));
     }
 
     virtual void ScheduledTasks() { }
@@ -1016,7 +1054,7 @@ class npc_azure_binder : public CreatureScript
 
                     _scheduler.Schedule(Seconds(4), [this](TaskContext task)
                     {
-                        if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 30.0f))
+                        if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 30.0f))
                             DoCast(target, SPELL_ARCANE_BARRAGE);
                         task.Repeat(Seconds(6));
                     });
@@ -1031,7 +1069,7 @@ class npc_azure_binder : public CreatureScript
 
                     _scheduler.Schedule(Seconds(4), [this](TaskContext task)
                     {
-                        if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 40.0f))
+                        if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 40.0f))
                             DoCast(target, SPELL_FROSTBOLT);
                         task.Repeat(Seconds(6));
                     });
@@ -1069,7 +1107,7 @@ class npc_azure_mage_slayer : public CreatureScript
                     _scheduler.Schedule(Seconds(5), [this](TaskContext task)
                     {
                         // wrong spellid?
-                        if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 30.0f))
+                        if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 30.0f))
                             DoCast(target, SPELL_SPELL_LOCK);
                         task.Repeat(Seconds(9));
                     });
@@ -1127,12 +1165,12 @@ class npc_azure_stalker : public CreatureScript
             {
                 _scheduler.Schedule(Seconds(8), [this](TaskContext task)
                 {
-                    if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 40.0f))
+                    if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 40.0f))
                         DoCast(target, SPELL_TACTICAL_BLINK);
 
                     task.Schedule(Milliseconds(1300), [this](TaskContext /*task*/)
                     {
-                        if (Unit* target = SelectTarget(SELECT_TARGET_NEAREST, 0, 5.0f))
+                        if (Unit* target = SelectTarget(SelectTargetMethod::MinDistance, 0, 5.0f))
                             DoCast(target, SPELL_BACKSTAB);
                     });
 
@@ -1162,14 +1200,14 @@ class npc_azure_spellbreaker : public CreatureScript
                 {
                     _scheduler.Schedule(Seconds(5), [this](TaskContext task)
                     {
-                        if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 30.0f))
+                        if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 30.0f))
                             DoCast(target, SPELL_ARCANE_BLAST);
                         task.Repeat(Seconds(6));
                     });
 
                     _scheduler.Schedule(Seconds(4), [this](TaskContext task)
                     {
-                        if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 30.0f))
+                        if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 30.0f))
                             DoCast(target, SPELL_SLOW);
                         task.Repeat(Seconds(5));
                     });
@@ -1178,7 +1216,7 @@ class npc_azure_spellbreaker : public CreatureScript
                 {
                     _scheduler.Schedule(Seconds(5), [this](TaskContext task)
                     {
-                        if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 30.0f))
+                        if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 30.0f))
                             DoCast(target, SPELL_CHAINS_OF_ICE);
                         task.Repeat(Seconds(7));
                     });
@@ -1242,7 +1280,7 @@ class npc_azure_sorceror : public CreatureScript
             {
                 _scheduler.Schedule(Seconds(4), [this](TaskContext task)
                 {
-                    if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 35.0f))
+                    if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 35.0f))
                         DoCast(target, SPELL_ARCANE_STREAM);
                     task.Repeat(Seconds(5), Seconds(10));
                 });
@@ -1273,7 +1311,7 @@ class npc_violet_hold_defense_system : public CreatureScript
             void Reset() override
             {
                 ScheduledTasks();
-                me->DespawnOrUnsummon(7000);
+                me->DespawnOrUnsummon(7s);
             }
 
             void ScheduledTasks()
@@ -1300,7 +1338,7 @@ class npc_violet_hold_defense_system : public CreatureScript
 
         CreatureAI* GetAI(Creature* creature) const override
         {
-            return new npc_violet_hold_defense_systemAI(creature);
+            return GetVioletHoldAI<npc_violet_hold_defense_systemAI>(creature);
         }
 };
 
@@ -1309,10 +1347,20 @@ class go_activation_crystal : public GameObjectScript
     public:
         go_activation_crystal() : GameObjectScript("go_activation_crystal") { }
 
-        bool OnGossipHello(Player* player, GameObject* /*go*/) override
+        struct go_activation_crystalAI : public GameObjectAI
         {
-            player->CastSpell(player, SPELL_CRYSTAL_ACTIVATION, true);
-            return false;
+            go_activation_crystalAI(GameObject* go) : GameObjectAI(go) { }
+
+            bool OnGossipHello(Player* player) override
+            {
+                player->CastSpell(player, SPELL_CRYSTAL_ACTIVATION, true);
+                return false;
+            }
+        };
+
+        GameObjectAI* GetAI(GameObject* go) const override
+        {
+            return GetVioletHoldAI<go_activation_crystalAI>(go);
         }
 };
 
@@ -1367,8 +1415,8 @@ class spell_violet_hold_portal_periodic : public SpellScriptLoader
             void PeriodicTick(AuraEffect const* aurEff)
             {
                 PreventDefaultAction();
-                if (GetTarget()->IsAIEnabled)
-                    GetTarget()->GetAI()->SetData(DATA_PORTAL_PERIODIC_TICK, aurEff->GetTickNumber());
+                if (UnitAI* targetAI = GetTarget()->GetAI())
+                    targetAI->SetData(DATA_PORTAL_PERIODIC_TICK, aurEff->GetTickNumber());
             }
 
             void Register() override
@@ -1395,9 +1443,7 @@ class spell_violet_hold_teleport_player : public SpellScriptLoader
 
             bool Validate(SpellInfo const* /*spellInfo*/) override
             {
-                if (!sSpellMgr->GetSpellInfo(SPELL_TELEPORT_PLAYER_EFFECT))
-                    return false;
-                return true;
+                return ValidateSpellInfo({ SPELL_TELEPORT_PLAYER_EFFECT });
             }
 
             void HandleScript(SpellEffIndex /*effIndex*/)

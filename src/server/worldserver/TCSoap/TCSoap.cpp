@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,6 +18,7 @@
 #include "TCSoap.h"
 #include "soapH.h"
 #include "soapStub.h"
+#include "Realm.h"
 #include "World.h"
 #include "AccountMgr.h"
 #include "Log.h"
@@ -28,6 +29,10 @@ void TCSoapThread(const std::string& host, uint16 port)
     soap_init(&soap);
     soap_set_imode(&soap, SOAP_C_UTFSTRING);
     soap_set_omode(&soap, SOAP_C_UTFSTRING);
+
+#if TRINITY_PLATFORM != TRINITY_PLATFORM_WINDOWS
+    soap.bind_flags = SO_REUSEADDR;
+#endif
 
     // check every 3 seconds if world ended
     soap.accept_timeout = 3;
@@ -91,7 +96,7 @@ int ns1__executeCommand(soap* soap, char* command, char** result)
         return 401;
     }
 
-    if (AccountMgr::GetSecurity(accountId) < SEC_ADMINISTRATOR)
+    if (AccountMgr::GetSecurity(accountId, realm.Id.Realm) < SEC_ADMINISTRATOR)
     {
         TC_LOG_INFO("network.soap", "%s's gmlevel is too low", soap->userid);
         return 403;

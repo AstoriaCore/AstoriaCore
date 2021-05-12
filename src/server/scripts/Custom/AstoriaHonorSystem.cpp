@@ -1,6 +1,8 @@
 #include "ScriptPCH.h"
 #include "CharacterDatabase.h"
 #include "QueryResult.h"
+#include "Log.h"
+#include "DatabaseEnv.h"
 
 #include <thread>
 #include <unordered_map>

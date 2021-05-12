@@ -1,4 +1,6 @@
 #include "CustomSpellSystem.h"
+#include "DatabaseEnv.h"
+#include "Log.h"
 
 CustomSpellSystem::CustomSpellSystem()
 {

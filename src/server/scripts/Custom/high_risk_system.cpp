@@ -6,36 +6,44 @@
 #include "Map.h"
 #include "Pet.h"
 #include "Item.h"
+#include "Chat.h"
+#include "WorldSession.h"
+#include "DBCStores.h"
+#include "GameObject.h"
+#include "LootMgr.h"
+#include "Bag.h"
+
+#include <G3D/Box.h>
+#include <G3D/CoordinateFrame.h>
+#include <G3D/Quat.h>
 
 #define SPELL_SICKNESS 15007
 #define GOB_CHEST 179697
 
-bool isLootable(Player* killer, Player* killed)
+void ReskillCheck(Player* killer, Player* killed)
 {
 	// if killer have same ip as killed or if player kill self dont spawn chest
 	if (killer->GetSession()->GetRemoteAddress() == killed->GetSession()->GetRemoteAddress() || killer->GetGUID() == killed->GetGUID())
-		return false;
+		return;
 
 	// if player have sickness, dont drop loot
 	if (killed->HasAura(SPELL_SICKNESS))
-		return false;
+		return;
 
 	// if player is above 5 levels or more, dont drop loot
-	if (killer->getLevel() - 5 >= killed->getLevel())
-		return false;
+	if (killer->GetLevel() - 5 >= killed->GetLevel())
+		return;
 
 	// dont drop if player is killed in arena or battleground
 	if (killed->GetMap()->IsBattlegroundOrArena())
-		return false;
+		return;
 
 	// if player is in sanctuary zone dont drop loot
 	AreaTableEntry const* area = sAreaTableStore.LookupEntry(killed->GetAreaId());
 	AreaTableEntry const* area2 = sAreaTableStore.LookupEntry(killer->GetAreaId());
 
 	if (area->IsSanctuary() || area2->IsSanctuary())
-		return false;
-
-	return true;
+		return;
 }
 
 class HighRiskSystem : public PlayerScript
@@ -45,16 +53,15 @@ public:
 
 	void OnPVPKill(Player* killer, Player* killed)
 	{
-		if (!isLootable(killer, killed))
-			return;
+		ReskillCheck(killer, killed);
 
 		if (!killed->IsAlive())
 		{
 			uint32 prev = 0;
 			uint32 count = 0;
 			Position pos = killed->GetPosition();
-			G3D::Quat rot = G3D::Matrix3::fromEulerAnglesZYX(pos.GetOrientation(), 0.f, 0.f);
-			if (GameObject* go = killer->SummonGameObject(GOB_CHEST, pos, rot, 300))
+            QuaternionData rot = QuaternionData::fromEulerAnglesZYX(pos.GetOrientation(), 0.f, 0.f);
+			if (GameObject* go = killer->SummonGameObject(GOB_CHEST, pos, rot, Seconds(300), GO_SUMMON_TIMED_DESPAWN))
 			{
 				killer->AddGameObject(go);
 				go->SetOwnerGUID(ObjectGuid::Empty);

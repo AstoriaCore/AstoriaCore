@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -20,47 +19,19 @@
 #define TRINITYCORE_COMMON_H
 
 #include "Define.h"
-
-#include <algorithm>
 #include <array>
-#include <exception>
-#include <list>
-#include <map>
 #include <memory>
-#include <queue>
-#include <set>
-#include <sstream>
 #include <string>
-#include <type_traits>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
+#include <utility>
 
-#include <cmath>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <ctime>
-#include <cerrno>
-#include <csignal>
-
-#include <boost/optional.hpp>
-#include <boost/utility/in_place_factory.hpp>
-#include <boost/functional/hash.hpp>
-
-#include "Debugging/Errors.h"
-
-#include "Threading/LockedQueue.h"
-
-#if PLATFORM == PLATFORM_WINDOWS
+#if TRINITY_PLATFORM == TRINITY_PLATFORM_WINDOWS
 #  include <ws2tcpip.h>
 
-#  if defined(__INTEL_COMPILER)
+#  if TRINITY_COMPILER == TRINITY_COMPILER_INTEL
 #    if !defined(BOOST_ASIO_HAS_MOVE)
 #      define BOOST_ASIO_HAS_MOVE
 #    endif // !defined(BOOST_ASIO_HAS_MOVE)
-#  endif // if defined(__INTEL_COMPILER)
-
+#  endif // if TRINITY_COMPILER == TRINITY_COMPILER_INTEL
 #else
 #  include <sys/types.h>
 #  include <sys/ioctl.h>
@@ -68,15 +39,12 @@
 #  include <netinet/in.h>
 #  include <unistd.h>
 #  include <netdb.h>
+#  include <cstdlib>
 #endif
 
-#if COMPILER == COMPILER_MICROSOFT
+#if TRINITY_COMPILER == TRINITY_COMPILER_MICROSOFT
 
-#include <float.h>
-
-#define snprintf _snprintf
 #define atoll _atoi64
-#define vsnprintf _vsnprintf
 #define llabs _abs64
 
 #else
@@ -85,8 +53,6 @@
 #define strnicmp strncasecmp
 
 #endif
-
-inline float finiteAlways(float f) { return std::isfinite(f) ? f : 0.0f; }
 
 inline unsigned long atoul(char const* str) { return strtoul(str, nullptr, 10); }
 inline unsigned long long atoull(char const* str) { return strtoull(str, nullptr, 10); }
@@ -106,20 +72,14 @@ enum TimeConstants
 
 enum AccountTypes
 {
-	SEC_PLAYER = 0,
-
-	SEC_MODERATOR = 1, // Find a way to alter this and change it to SEC_ALPHA_TESTER, DONT remove existing enum entries here @Acidy
-	SEC_TRIAL_GAMEMASTER = 2,
-	SEC_GAMEMASTER = 3,
-	SEC_ADMINISTRATOR = 4,
-	SEC_HEAD_GAMEMASTER = 5,
-	SEC_DEVELOPER = 6,
-	SEC_OWNER = 7,
-	SEC_CONSOLE = 8, // must always be below all.
-
+    SEC_PLAYER         = 0,
+    SEC_MODERATOR      = 1,
+    SEC_GAMEMASTER     = 2,
+    SEC_ADMINISTRATOR  = 3,
+    SEC_CONSOLE        = 4                                  // must be always last in list, accounts must have less security level always also
 };
 
-enum LocaleConstant
+enum LocaleConstant : uint8
 {
     LOCALE_enUS = 0,
     LOCALE_koKR = 1,
@@ -141,11 +101,9 @@ enum LocaleConstant
 
 TC_COMMON_API extern char const* localeNames[TOTAL_LOCALES];
 
-TC_COMMON_API LocaleConstant GetLocaleByName(const std::string& name);
+TC_COMMON_API LocaleConstant GetLocaleByName(std::string const& name);
 
-typedef std::vector<std::string> StringVector;
-
-// we always use stdlibc++ std::max/std::min, undefine some not C++ standard defines (Win API and some other platforms)
+// we always use stdlib std::max/std::min, undefine some not C++ standard defines (Win API and some other platforms)
 #ifdef max
 #undef max
 #endif
@@ -155,38 +113,13 @@ typedef std::vector<std::string> StringVector;
 #endif
 
 #ifndef M_PI
-#define M_PI            3.14159265358979323846
+#define M_PI 3.14159265358979323846
+#endif
+
+#ifndef M_PI_4
+#define M_PI_4 0.785398163397448309616
 #endif
 
 #define MAX_QUERY_LEN 32*1024
-
-//! Optional helper class to wrap optional values within.
-template <typename T>
-using Optional = boost::optional<T>;
-
-namespace Trinity
-{
-    //! std::make_unique implementation (TODO: remove this once C++14 is supported)
-    template<typename T, typename ...Args>
-    std::unique_ptr<T> make_unique(Args&& ...args)
-    {
-        return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
-    }
-}
-
-//! Hash implementation for std::pair to allow using pairs in unordered_set or as key for unordered_map
-//! Individual types used in pair must be hashable by boost::hash
-namespace std
-{
-    template<class K, class V>
-    struct hash<std::pair<K, V>>
-    {
-    public:
-        size_t operator()(std::pair<K, V> const& key) const
-        {
-            return boost::hash_value(key);
-        }
-    };
-}
 
 #endif

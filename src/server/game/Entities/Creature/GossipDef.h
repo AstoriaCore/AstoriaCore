@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -21,9 +20,10 @@
 
 #include "Common.h"
 #include "ObjectGuid.h"
-#include "QuestDef.h"
 #include "NPCHandler.h"
+#include <map>
 
+class Quest;
 class WorldSession;
 
 #define GOSSIP_MAX_MENU_ITEMS               32
@@ -192,7 +192,7 @@ class TC_GAME_API GossipMenu
             if (itr != _menuItems.end())
                 return &itr->second;
 
-            return NULL;
+            return nullptr;
         }
 
         GossipMenuItemData const* GetItemData(uint32 indexId) const
@@ -201,7 +201,7 @@ class TC_GAME_API GossipMenu
             if (itr != _menuItemData.end())
                 return &itr->second;
 
-            return NULL;
+            return nullptr;
         }
 
         uint32 GetMenuItemSender(uint32 menuItemId) const;
@@ -283,10 +283,8 @@ class TC_GAME_API PlayerMenu
         void SendQuestQueryResponse(Quest const* quest) const;
         void SendQuestGiverQuestDetails(Quest const* quest, ObjectGuid npcGUID, bool activateAccept) const;
 
-        void SendQuestGiverOfferReward(Quest const* quest, ObjectGuid npcGUID, bool enableNext) const;
+        void SendQuestGiverOfferReward(Quest const* quest, ObjectGuid npcGUID, bool autoLaunched) const;
         void SendQuestGiverRequestItems(Quest const* quest, ObjectGuid npcGUID, bool canComplete, bool closeOnCancel) const;
-
-        static void AddQuestLevelToTitle(std::string &title, int32 level);
 
     private:
         GossipMenu _gossipMenu;

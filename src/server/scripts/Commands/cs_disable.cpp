@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -22,53 +22,61 @@ Comment: All disable related commands
 Category: commandscripts
 EndScriptData */
 
-#include "DisableMgr.h"
+#include "ScriptMgr.h"
 #include "AchievementMgr.h"
 #include "Chat.h"
+#include "DatabaseEnv.h"
+#include "DisableMgr.h"
 #include "Language.h"
 #include "ObjectMgr.h"
 #include "OutdoorPvP.h"
 #include "Player.h"
-#include "ScriptMgr.h"
+#include "RBAC.h"
 #include "SpellMgr.h"
+
+#if TRINITY_COMPILER == TRINITY_COMPILER_GNU
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
+using namespace Trinity::ChatCommands;
 
 class disable_commandscript : public CommandScript
 {
 public:
     disable_commandscript() : CommandScript("disable_commandscript") { }
 
-    std::vector<ChatCommand> GetCommands() const override
+    ChatCommandTable GetCommands() const override
     {
-        static std::vector<ChatCommand> removeDisableCommandTable =
+        static ChatCommandTable removeDisableCommandTable =
         {
-            { "spell",                rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_SPELL,                true, &HandleRemoveDisableSpellCommand,               "" },
-            { "quest",                rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_QUEST,                true, &HandleRemoveDisableQuestCommand,               "" },
-            { "map",                  rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_MAP,                  true, &HandleRemoveDisableMapCommand,                 "" },
-            { "battleground",         rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_BATTLEGROUND,         true, &HandleRemoveDisableBattlegroundCommand,        "" },
-            { "achievement_criteria", rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_ACHIEVEMENT_CRITERIA, true, &HandleRemoveDisableAchievementCriteriaCommand, "" },
-            { "outdoorpvp",           rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_OUTDOORPVP,           true, &HandleRemoveDisableOutdoorPvPCommand,          "" },
-            { "vmap",                 rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_VMAP,                 true, &HandleRemoveDisableVmapCommand,                "" },
-            { "mmap",                 rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_MMAP,                 true, &HandleRemoveDisableMMapCommand,                "" },
+            { "spell",                HandleRemoveDisableSpellCommand,               rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_SPELL,                Console::Yes },
+            { "quest",                HandleRemoveDisableQuestCommand,               rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_QUEST,                Console::Yes },
+            { "map",                  HandleRemoveDisableMapCommand,                 rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_MAP,                  Console::Yes },
+            { "battleground",         HandleRemoveDisableBattlegroundCommand,        rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_BATTLEGROUND,         Console::Yes },
+            { "achievement_criteria", HandleRemoveDisableAchievementCriteriaCommand, rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_ACHIEVEMENT_CRITERIA, Console::Yes },
+            { "outdoorpvp",           HandleRemoveDisableOutdoorPvPCommand,          rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_OUTDOORPVP,           Console::Yes },
+            { "vmap",                 HandleRemoveDisableVmapCommand,                rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_VMAP,                 Console::Yes },
+            { "mmap",                 HandleRemoveDisableMMapCommand,                rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE_MMAP,                 Console::Yes },
         };
-        static std::vector<ChatCommand> addDisableCommandTable =
+        static ChatCommandTable addDisableCommandTable =
         {
-            { "spell",                rbac::RBAC_PERM_COMMAND_DISABLE_ADD_SPELL,                true, &HandleAddDisableSpellCommand,                  "" },
-            { "quest",                rbac::RBAC_PERM_COMMAND_DISABLE_ADD_QUEST,                true, &HandleAddDisableQuestCommand,                  "" },
-            { "map",                  rbac::RBAC_PERM_COMMAND_DISABLE_ADD_MAP,                  true, &HandleAddDisableMapCommand,                    "" },
-            { "battleground",         rbac::RBAC_PERM_COMMAND_DISABLE_ADD_BATTLEGROUND,         true, &HandleAddDisableBattlegroundCommand,           "" },
-            { "achievement_criteria", rbac::RBAC_PERM_COMMAND_DISABLE_ADD_ACHIEVEMENT_CRITERIA, true, &HandleAddDisableAchievementCriteriaCommand,    "" },
-            { "outdoorpvp",           rbac::RBAC_PERM_COMMAND_DISABLE_ADD_OUTDOORPVP,           true, &HandleAddDisableOutdoorPvPCommand,             "" },
-            { "vmap",                 rbac::RBAC_PERM_COMMAND_DISABLE_ADD_VMAP,                 true, &HandleAddDisableVmapCommand,                   "" },
-            { "mmap",                 rbac::RBAC_PERM_COMMAND_DISABLE_ADD_MMAP,                 true, &HandleAddDisableMMapCommand,                   "" },
+            { "spell",                HandleAddDisableSpellCommand,                  rbac::RBAC_PERM_COMMAND_DISABLE_ADD_SPELL,                Console::Yes },
+            { "quest",                HandleAddDisableQuestCommand,                  rbac::RBAC_PERM_COMMAND_DISABLE_ADD_QUEST,                Console::Yes },
+            { "map",                  HandleAddDisableMapCommand,                    rbac::RBAC_PERM_COMMAND_DISABLE_ADD_MAP,                  Console::Yes },
+            { "battleground",         HandleAddDisableBattlegroundCommand,           rbac::RBAC_PERM_COMMAND_DISABLE_ADD_BATTLEGROUND,         Console::Yes },
+            { "achievement_criteria", HandleAddDisableAchievementCriteriaCommand,    rbac::RBAC_PERM_COMMAND_DISABLE_ADD_ACHIEVEMENT_CRITERIA, Console::Yes },
+            { "outdoorpvp",           HandleAddDisableOutdoorPvPCommand,             rbac::RBAC_PERM_COMMAND_DISABLE_ADD_OUTDOORPVP,           Console::Yes },
+            { "vmap",                 HandleAddDisableVmapCommand,                   rbac::RBAC_PERM_COMMAND_DISABLE_ADD_VMAP,                 Console::Yes },
+            { "mmap",                 HandleAddDisableMMapCommand,                   rbac::RBAC_PERM_COMMAND_DISABLE_ADD_MMAP,                 Console::Yes },
         };
-        static std::vector<ChatCommand> disableCommandTable =
+        static ChatCommandTable disableCommandTable =
         {
-            { "add",    rbac::RBAC_PERM_COMMAND_DISABLE_ADD,    true, NULL, "", addDisableCommandTable },
-            { "remove", rbac::RBAC_PERM_COMMAND_DISABLE_REMOVE, true, NULL, "", removeDisableCommandTable },
+            { "add",    addDisableCommandTable },
+            { "remove", removeDisableCommandTable },
         };
-        static std::vector<ChatCommand> commandTable =
+        static ChatCommandTable commandTable =
         {
-            { "disable", rbac::RBAC_PERM_COMMAND_DISABLE, false, NULL, "", disableCommandTable },
+            { "disable", disableCommandTable },
         };
         return commandTable;
     }
@@ -79,10 +87,10 @@ public:
         if (!entryStr || !atoi(entryStr))
             return false;
 
-        char* flagsStr = strtok(NULL, " ");
+        char* flagsStr = strtok(nullptr, " ");
         uint8 flags = flagsStr ? uint8(atoi(flagsStr)) : 0;
 
-        char* commentStr = strtok(NULL, "");
+        char* commentStr = strtok(nullptr, "");
         if (!commentStr)
             return false;
 
@@ -185,8 +193,7 @@ public:
                 break;
         }
 
-        PreparedStatement* stmt = NULL;
-        stmt = WorldDatabase.GetPreparedStatement(WORLD_SEL_DISABLES);
+        WorldDatabasePreparedStatement* stmt = WorldDatabase.GetPreparedStatement(WORLD_SEL_DISABLES);
         stmt->setUInt32(0, entry);
         stmt->setUInt8(1, disableType);
         PreparedQueryResult result = WorldDatabase.Query(stmt);
@@ -311,8 +318,7 @@ public:
                 break;
         }
 
-        PreparedStatement* stmt = NULL;
-        stmt = WorldDatabase.GetPreparedStatement(WORLD_SEL_DISABLES);
+        WorldDatabasePreparedStatement* stmt = WorldDatabase.GetPreparedStatement(WORLD_SEL_DISABLES);
         stmt->setUInt32(0, entry);
         stmt->setUInt8(1, disableType);
         PreparedQueryResult result = WorldDatabase.Query(stmt);

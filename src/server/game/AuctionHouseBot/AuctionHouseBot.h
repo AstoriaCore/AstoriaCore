@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,11 +19,16 @@
 #define AUCTION_HOUSE_BOT_H
 
 #include "Define.h"
+#include "SharedDefines.h"
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 class AuctionBotSeller;
 class AuctionBotBuyer;
 
 // shadow of ItemQualities with skipped ITEM_QUALITY_HEIRLOOM, anything after ITEM_QUALITY_ARTIFACT(6) in fact
+// EnumUtils: DESCRIBE THIS
 enum AuctionQuality
 {
     AUCTION_QUALITY_GRAY    = ITEM_QUALITY_POOR,
@@ -37,6 +42,7 @@ enum AuctionQuality
 
 #define MAX_AUCTION_QUALITY 7
 
+// EnumUtils: DESCRIBE THIS
 enum AuctionHouseType
 {
     AUCTION_HOUSE_NEUTRAL   = 0,
@@ -68,21 +74,21 @@ enum AuctionBotConfigUInt32Values
     CONFIG_AHBOT_ITEM_PURPLE_AMOUNT,
     CONFIG_AHBOT_ITEM_ORANGE_AMOUNT,
     CONFIG_AHBOT_ITEM_YELLOW_AMOUNT,
-    CONFIG_AHBOT_CLASS_CONSUMABLE_AMOUNT,
-    CONFIG_AHBOT_CLASS_CONTAINER_AMOUNT,
-    CONFIG_AHBOT_CLASS_WEAPON_AMOUNT,
-    CONFIG_AHBOT_CLASS_GEM_AMOUNT,
-    CONFIG_AHBOT_CLASS_ARMOR_AMOUNT,
-    CONFIG_AHBOT_CLASS_REAGENT_AMOUNT,
-    CONFIG_AHBOT_CLASS_PROJECTILE_AMOUNT,
-    CONFIG_AHBOT_CLASS_TRADEGOOD_AMOUNT,
-    CONFIG_AHBOT_CLASS_GENERIC_AMOUNT,
-    CONFIG_AHBOT_CLASS_RECIPE_AMOUNT,
-    CONFIG_AHBOT_CLASS_QUIVER_AMOUNT,
-    CONFIG_AHBOT_CLASS_QUEST_AMOUNT,
-    CONFIG_AHBOT_CLASS_KEY_AMOUNT,
-    CONFIG_AHBOT_CLASS_MISC_AMOUNT,
-    CONFIG_AHBOT_CLASS_GLYPH_AMOUNT,
+    CONFIG_AHBOT_CLASS_CONSUMABLE_PRIORITY,
+    CONFIG_AHBOT_CLASS_CONTAINER_PRIORITY,
+    CONFIG_AHBOT_CLASS_WEAPON_PRIORITY,
+    CONFIG_AHBOT_CLASS_GEM_PRIORITY,
+    CONFIG_AHBOT_CLASS_ARMOR_PRIORITY,
+    CONFIG_AHBOT_CLASS_REAGENT_PRIORITY,
+    CONFIG_AHBOT_CLASS_PROJECTILE_PRIORITY,
+    CONFIG_AHBOT_CLASS_TRADEGOOD_PRIORITY,
+    CONFIG_AHBOT_CLASS_GENERIC_PRIORITY,
+    CONFIG_AHBOT_CLASS_RECIPE_PRIORITY,
+    CONFIG_AHBOT_CLASS_QUIVER_PRIORITY,
+    CONFIG_AHBOT_CLASS_QUEST_PRIORITY,
+    CONFIG_AHBOT_CLASS_KEY_PRIORITY,
+    CONFIG_AHBOT_CLASS_MISC_PRIORITY,
+    CONFIG_AHBOT_CLASS_GLYPH_PRIORITY,
     CONFIG_AHBOT_ALLIANCE_PRICE_RATIO,
     CONFIG_AHBOT_HORDE_PRICE_RATIO,
     CONFIG_AHBOT_NEUTRAL_PRICE_RATIO,
@@ -193,6 +199,8 @@ enum AuctionBotConfigBoolValues
 enum AuctionBotConfigFloatValues
 {
     CONFIG_AHBOT_BUYER_CHANCE_FACTOR,
+    CONFIG_AHBOT_BIDPRICE_MIN,
+    CONFIG_AHBOT_BIDPRICE_MAX,
     CONFIG_AHBOT_FLOAT_COUNT
 };
 
@@ -202,15 +210,15 @@ class TC_GAME_API AuctionBotConfig
 private:
     AuctionBotConfig(): _itemsPerCycleBoost(1000), _itemsPerCycleNormal(20) {}
     ~AuctionBotConfig() {}
-    AuctionBotConfig(const AuctionBotConfig&);
-    AuctionBotConfig& operator=(const AuctionBotConfig&);
+    AuctionBotConfig(AuctionBotConfig const&) = delete;
+    AuctionBotConfig& operator=(AuctionBotConfig const&) = delete;
 
 public:
     static AuctionBotConfig* instance();
 
     bool Initialize();
-    const std::string& GetAHBotIncludes() const { return _AHBotIncludes; }
-    const std::string& GetAHBotExcludes() const { return _AHBotExcludes; }
+    std::string const& GetAHBotIncludes() const { return _AHBotIncludes; }
+    std::string const& GetAHBotExcludes() const { return _AHBotExcludes; }
 
     uint32 GetConfig(AuctionBotConfigUInt32Values index) const { return _configUint32Values[index]; }
     bool GetConfig(AuctionBotConfigBoolValues index) const { return _configBoolValues[index]; }
@@ -220,6 +228,7 @@ public:
     void SetConfig(AuctionBotConfigFloatValues index, float value) { _configFloatValues[index] = value; }
 
     uint32 GetConfigItemAmountRatio(AuctionHouseType houseType) const;
+    uint32 GetConfigPriceRatio(AuctionHouseType houseType) const;
     bool GetConfigBuyerEnabled(AuctionHouseType houseType) const;
     uint32 GetConfigItemQualityAmount(AuctionQuality quality) const;
 
@@ -268,10 +277,8 @@ public:
 struct AuctionHouseBotStatusInfoPerType
 {
     uint32 ItemsCount;
-    uint32 QualityInfo[MAX_AUCTION_QUALITY];
+    std::unordered_map<AuctionQuality, uint32> QualityInfo;
 };
-
-typedef AuctionHouseBotStatusInfoPerType AuctionHouseBotStatusInfo[MAX_AUCTION_HOUSE_TYPE];
 
 // This class handle both Selling and Buying method
 // (holder of AuctionBotBuyer and AuctionBotSeller objects)
@@ -280,8 +287,8 @@ class TC_GAME_API AuctionHouseBot
 private:
     AuctionHouseBot();
     ~AuctionHouseBot();
-    AuctionHouseBot(const AuctionHouseBot&);
-    AuctionHouseBot& operator=(const AuctionHouseBot&);
+    AuctionHouseBot(AuctionHouseBot const&) = delete;
+    AuctionHouseBot& operator=(AuctionHouseBot const&) = delete;
 
 public:
     static AuctionHouseBot* instance();
@@ -292,12 +299,12 @@ public:
     // Followed method is mainly used by cs_ahbot.cpp for in-game/console command
     void SetItemsRatio(uint32 al, uint32 ho, uint32 ne);
     void SetItemsRatioForHouse(AuctionHouseType house, uint32 val);
-    void SetItemsAmount(uint32(&vals)[MAX_AUCTION_QUALITY]);
+    void SetItemsAmount(std::array<uint32, MAX_AUCTION_QUALITY> const& amounts);
     void SetItemsAmountForQuality(AuctionQuality quality, uint32 val);
     void ReloadAllConfig();
     void Rebuild(bool all);
 
-    void PrepareStatusInfos(AuctionHouseBotStatusInfo& statusInfo);
+    void PrepareStatusInfos(std::unordered_map<AuctionHouseType, AuctionHouseBotStatusInfoPerType>& statusInfo);
 private:
     void InitializeAgents();
 

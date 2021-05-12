@@ -49,37 +49,47 @@ class CS_Transmogrification : public CreatureScript
 public:
     CS_Transmogrification() : CreatureScript("Creature_Transmogrify") { }
 
-        ////struct Timed : public BasicEvent
-        //{
-        //    // This timed event tries to fix modify money breaking gossip
-        //    // This event closes the gossip menu and on the second player update tries to open the next menu
-        //    Timed(Player* player, Creature* creature, uint32 sender, uint32 action) : guid(creature->GetGUID()), player(player), sender(sender), action(action), triggered(false)
-        //    {
-        //        CloseGossipMenuFor(player);
-        //        player->m_Events.AddEvent(this, player->m_Events.CalculateTime(1));
-        //    }
+    class TransmogAI : public ScriptedAI
+    {
+    public:
+        TransmogAI(Creature* creature) : ScriptedAI(creature) {}
 
-        //    bool Execute(uint64, uint32) override
-        //    {
-        //        if (!triggered)
-        //        {
-        //            triggered = true;
-        //            player->m_Events.AddEvent(this, player->m_Events.CalculateTime(1));
-        //            return false;
-        //        }
-        //        if (Creature* creature = player->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_GOSSIP))
-        //            OnGossipSelect(player, creature, sender, action);
-        //        return true;
-        //    }
+        struct Timed : public BasicEvent
+        {
+            // This timed event tries to fix modify money breaking gossip
+            // This event closes the gossip menu and on the second player update tries to open the next menu
+            Timed(Player* player, Creature* creature, uint32 sender, uint32 action) : guid(creature->GetGUID()), player(player), sender(sender), action(action), triggered(false)
+            {
+                CloseGossipMenuFor(player);
+                player->m_Events.AddEvent(this, player->m_Events.CalculateTime(Milliseconds(1)));
+            }
 
-        //    ObjectGuid guid;
-        //    Player* player;
-        //    uint32 sender;
-        //    uint32 action;
-        //    bool triggered;
-        //};
+            bool Execute(uint64, uint32) override
+            {
+                if (!triggered)
+                {
+                    triggered = true;
+                    player->m_Events.AddEvent(this, player->m_Events.CalculateTime(Milliseconds(1)));
+                    return false;
+                }
+                if (Creature* creature = player->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_GOSSIP))
+                    OnGossipSelect(player, creature, sender, action);
+                return true;
+            }
 
-        bool OnGossipHello(Player* player, Creature* creature) override
+            ObjectGuid guid;
+            Player* player;
+            uint32 sender;
+            uint32 action;
+            bool triggered;
+        };
+
+        bool OnGossipHello(Player* player) override
+        {
+            return OnGossipHello(player, me);
+        }
+
+        static bool OnGossipHello(Player* player, Creature* creature)
         {
             WorldSession* session = player->GetSession();
             if (sTransmogrification->EnableTransmogInfo)
@@ -104,7 +114,14 @@ public:
             return true;
         }
 
-        bool OnGossipSelect(Player* player, Creature* creature, uint32 sender, uint32 action)
+        bool OnGossipSelect(Player* player, uint32 /*menu_id*/, uint32 gossipListId) override
+        {
+            uint32 sender = player->PlayerTalkClass->GetGossipOptionSender(gossipListId);
+            uint32 action = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);
+            return OnGossipSelect(player, me, sender, action);
+        }
+
+        static bool OnGossipSelect(Player* player, Creature* creature, uint32 sender, uint32 action)
         {
             ClearGossipMenuFor(player);
             WorldSession* session = player->GetSession();
@@ -302,16 +319,22 @@ public:
                             session->SendAreaTriggerMessage("%s", GTS(LANG_ERR_TRANSMOG_OK));
                         else
                             session->SendNotification(res);
-                        OnGossipSelect(player, creature, EQUIPMENT_SLOT_END, sender);
-						//new Timed(player, creature, EQUIPMENT_SLOT_END, sender);
+                        // OnGossipSelect(player, EQUIPMENT_SLOT_END, sender);
+                        new Timed(player, creature, EQUIPMENT_SLOT_END, sender);
                     } break;
             }
             return true;
         }
 
 #ifdef PRESETS
+        bool OnGossipSelectCode(Player* player, uint32 /*menu_id*/, uint32 gossipListId, const char* code) override
+        {
+            uint32 sender = player->PlayerTalkClass->GetGossipOptionSender(gossipListId);
+            uint32 action = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);
+            return GossipSelectCode(player, me, sender, action, code);
+        }
 
-        bool OnGossipSelectCode(Player* player, Creature* creature, uint32 sender, uint32 action, const char* code) override
+        bool GossipSelectCode(Player* player, Creature* creature, uint32 sender, uint32 action, const char* code)
         {
             ClearGossipMenuFor(player);
             if (sender || action)
@@ -395,8 +418,7 @@ public:
             }
 
             // OnGossipSelect(player, creature, EQUIPMENT_SLOT_END + 4, 0);
-			OnGossipSelect(player, creature, EQUIPMENT_SLOT_END + 4, 0);
-            //new Timed(player, creature, EQUIPMENT_SLOT_END + 4, 0);
+            new Timed(player, creature, EQUIPMENT_SLOT_END + 4, 0);
             return true;
         }
 #endif
@@ -458,6 +480,12 @@ public:
             AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, "|TInterface/ICONS/Ability_Spy:30:30:-18:0|tBack..", EQUIPMENT_SLOT_END + 1, 0);
             SendGossipMenuFor(player, DEFAULT_GOSSIP_MESSAGE, creature->GetGUID());
         }
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new TransmogAI(creature);
+    }
 };
 
 class PS_Transmogrification : public PlayerScript

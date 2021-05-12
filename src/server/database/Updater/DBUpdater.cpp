@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,17 +16,18 @@
  */
 
 #include "DBUpdater.h"
-#include "Log.h"
-#include "GitRevision.h"
-#include "UpdateFetcher.h"
-#include "DatabaseLoader.h"
-#include "Config.h"
 #include "BuiltInConfig.h"
+#include "Config.h"
+#include "DatabaseEnv.h"
+#include "DatabaseLoader.h"
+#include "GitRevision.h"
+#include "Log.h"
+#include "QueryResult.h"
 #include "StartProcess.h"
-
+#include "UpdateFetcher.h"
+#include <boost/filesystem/operations.hpp>
 #include <fstream>
 #include <iostream>
-#include <unordered_map>
 
 std::string DBUpdaterUtil::GetCorrectedMySQLExecutable()
 {
@@ -39,20 +40,14 @@ std::string DBUpdaterUtil::GetCorrectedMySQLExecutable()
 bool DBUpdaterUtil::CheckExecutable()
 {
     boost::filesystem::path exe(GetCorrectedMySQLExecutable());
-    if (!exists(exe))
+    if (!is_regular_file(exe))
     {
-        exe.clear();
-
-        if (auto path = Trinity::SearchExecutableInPath("mysql"))
+        exe = Trinity::SearchExecutableInPath("mysql");
+        if (!exe.empty() && is_regular_file(exe))
         {
-            exe = std::move(*path);
-
-            if (!exe.empty() && exists(exe))
-            {
-                // Correct the path to the cli
-                corrected_path() = absolute(exe).generic_string();
-                return true;
-            }
+            // Correct the path to the cli
+            corrected_path() = absolute(exe).generic_string();
+            return true;
         }
 
         TC_LOG_FATAL("sql.updates", "Didn't find any executable MySQL binary at \'%s\' or in path, correct the path in the *.conf (\"MySQLExecutable\").",
@@ -193,7 +188,7 @@ bool DBUpdater<T>::Create(DatabaseWorkerPool<T>& pool)
     try
     {
         DBUpdater<T>::ApplyFile(pool, pool.GetConnectionInfo()->host, pool.GetConnectionInfo()->user, pool.GetConnectionInfo()->password,
-            pool.GetConnectionInfo()->port_or_socket, "", temp);
+            pool.GetConnectionInfo()->port_or_socket, "", pool.GetConnectionInfo()->ssl, temp);
     }
     catch (UpdateException&)
     {
@@ -287,8 +282,10 @@ bool DBUpdater<T>::Populate(DatabaseWorkerPool<T>& pool)
             }
             case LOCATION_DOWNLOAD:
             {
+                std::string const filename = base.filename().generic_string();
+                std::string const workdir = boost::filesystem::current_path().generic_string();
                 TC_LOG_ERROR("sql.updates", ">> File \"%s\" is missing, download it from \"https://github.com/TrinityCore/TrinityCore/releases\"" \
-                    " uncompress it and place the file TDB_full_world_(a_variable_name).sql in your worldserver directory.", base.filename().generic_string().c_str());
+                    " uncompress it and place the file \"%s\" in the directory \"%s\".", filename.c_str(), filename.c_str(), workdir.c_str());
                 break;
             }
         }
@@ -313,7 +310,7 @@ bool DBUpdater<T>::Populate(DatabaseWorkerPool<T>& pool)
 template<class T>
 QueryResult DBUpdater<T>::Retrieve(DatabaseWorkerPool<T>& pool, std::string const& query)
 {
-    return pool.PQuery(query.c_str());
+    return pool.Query(query.c_str());
 }
 
 template<class T>
@@ -326,55 +323,59 @@ template<class T>
 void DBUpdater<T>::ApplyFile(DatabaseWorkerPool<T>& pool, Path const& path)
 {
     DBUpdater<T>::ApplyFile(pool, pool.GetConnectionInfo()->host, pool.GetConnectionInfo()->user, pool.GetConnectionInfo()->password,
-        pool.GetConnectionInfo()->port_or_socket, pool.GetConnectionInfo()->database, path);
+        pool.GetConnectionInfo()->port_or_socket, pool.GetConnectionInfo()->database, pool.GetConnectionInfo()->ssl, path);
 }
 
 template<class T>
 void DBUpdater<T>::ApplyFile(DatabaseWorkerPool<T>& pool, std::string const& host, std::string const& user,
-    std::string const& password, std::string const& port_or_socket, std::string const& database, Path const& path)
+    std::string const& password, std::string const& port_or_socket, std::string const& database, std::string const& ssl,
+    Path const& path)
 {
     std::vector<std::string> args;
-    args.reserve(8);
-
-    // args[0] represents the program name
-    args.push_back("mysql");
+    args.reserve(7);
 
     // CLI Client connection info
-    args.push_back("-h" + host);
-    args.push_back("-u" + user);
+    args.emplace_back("-h" + host);
+    args.emplace_back("-u" + user);
 
     if (!password.empty())
-        args.push_back("-p" + password);
+        args.emplace_back("-p" + password);
 
     // Check if we want to connect through ip or socket (Unix only)
 #ifdef _WIN32
 
-    args.push_back("-P" + port_or_socket);
+    if (host == ".")
+        args.emplace_back("--protocol=PIPE");
+    else
+        args.emplace_back("-P" + port_or_socket);
 
 #else
 
     if (!std::isdigit(port_or_socket[0]))
     {
         // We can't check if host == "." here, because it is named localhost if socket option is enabled
-        args.push_back("-P0");
-        args.push_back("--protocol=SOCKET");
-        args.push_back("-S" + port_or_socket);
+        args.emplace_back("-P0");
+        args.emplace_back("--protocol=SOCKET");
+        args.emplace_back("-S" + port_or_socket);
     }
     else
         // generic case
-        args.push_back("-P" + port_or_socket);
+        args.emplace_back("-P" + port_or_socket);
 
 #endif
 
     // Set the default charset to utf8
-    args.push_back("--default-character-set=utf8");
+    args.emplace_back("--default-character-set=utf8");
 
     // Set max allowed packet to 1 GB
-    args.push_back("--max-allowed-packet=1GB");
+    args.emplace_back("--max-allowed-packet=1GB");
+
+    if (ssl == "ssl")
+        args.emplace_back("--ssl");
 
     // Database
     if (!database.empty())
-        args.push_back(database);
+        args.emplace_back(database);
 
     // Invokes a mysql process which doesn't leak credentials to logs
     int const ret = Trinity::StartProcess(DBUpdaterUtil::GetCorrectedMySQLExecutable(), args,

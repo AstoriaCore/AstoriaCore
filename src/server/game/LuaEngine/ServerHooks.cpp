@@ -35,9 +35,21 @@ bool Eluna::OnAddonMessage(Player* sender, uint32 type, std::string& msg, Player
     START_HOOK_WITH_RETVAL(ADDON_EVENT_ON_MESSAGE, true);
     Push(sender);
     Push(type);
-    const char* c_msg = msg.c_str();
-    Push(strtok((char*)c_msg, "\t")); // prefix
-    Push(strtok(NULL, "")); // msg
+
+    auto delimeter_position = msg.find('\t');
+    if (delimeter_position == std::string::npos)
+    {
+        Push(msg); // prefix
+        Push(); // msg
+    }
+    else
+    {
+        std::string prefix = msg.substr(0, delimeter_position);
+        std::string content = msg.substr(delimeter_position + 1, std::string::npos);
+        Push(prefix);
+        Push(content);
+    }
+
     if (receiver)
         Push(receiver);
     else if (guild)
@@ -73,6 +85,20 @@ void Eluna::OnTimedEvent(int funcRef, uint32 delay, uint32 calls, WorldObject* o
     InvalidateObjects();
 }
 
+void Eluna::OnGameEventStart(uint32 eventid)
+{
+    START_HOOK(GAME_EVENT_START);
+    Push(eventid);
+    CallAllFunctions(ServerEventBindings, key);
+}
+
+void Eluna::OnGameEventStop(uint32 eventid)
+{
+    START_HOOK(GAME_EVENT_STOP);
+    Push(eventid);
+    CallAllFunctions(ServerEventBindings, key);
+}
+
 void Eluna::OnLuaStateClose()
 {
     START_HOOK(ELUNA_EVENT_ON_LUA_STATE_CLOSE);
@@ -90,12 +116,19 @@ bool Eluna::OnAreaTrigger(Player* pPlayer, AreaTriggerEntry const* pTrigger)
 {
     START_HOOK_WITH_RETVAL(TRIGGER_EVENT_ON_TRIGGER, false);
     Push(pPlayer);
+#ifdef TRINITY
+    Push(pTrigger->ID);
+#elif AZEROTHCORE
+    Push(pTrigger->entry);
+#else
     Push(pTrigger->id);
+    
+#endif
     return CallAllFunctionsBool(ServerEventBindings, key);
 }
 
 // Weather
-void Eluna::OnChange(Weather* weather, uint32 zone, WeatherState state, float grade)
+void Eluna::OnChange(Weather* /*weather*/, uint32 zone, WeatherState state, float grade)
 {
     START_HOOK(WEATHER_EVENT_ON_CHANGE);
     Push(zone);
@@ -110,6 +143,9 @@ void Eluna::OnAdd(AuctionHouseObject* /*ah*/, AuctionEntry* entry)
     Player* owner = eObjectAccessor()FindPlayer(MAKE_NEW_GUID(entry->owner, 0, HIGHGUID_PLAYER));
 #ifdef TRINITY
     Item* item = eAuctionMgr->GetAItem(entry->itemGUIDLow);
+    uint32 expiretime = entry->expire_time;
+#elif AZEROTHCORE
+    Item* item = eAuctionMgr->GetAItem(entry->item_guidlow);
     uint32 expiretime = entry->expire_time;
 #else
     Item* item = eAuctionMgr->GetAItem(entry->itemGuidLow);
@@ -138,6 +174,9 @@ void Eluna::OnRemove(AuctionHouseObject* /*ah*/, AuctionEntry* entry)
 #ifdef TRINITY
     Item* item = eAuctionMgr->GetAItem(entry->itemGUIDLow);
     uint32 expiretime = entry->expire_time;
+#elif AZEROTHCORE
+    Item* item = eAuctionMgr->GetAItem(entry->item_guidlow);
+    uint32 expiretime = entry->expire_time;
 #else
     Item* item = eAuctionMgr->GetAItem(entry->itemGuidLow);
     uint32 expiretime = entry->expireTime;
@@ -165,6 +204,9 @@ void Eluna::OnSuccessful(AuctionHouseObject* /*ah*/, AuctionEntry* entry)
 #ifdef TRINITY
     Item* item = eAuctionMgr->GetAItem(entry->itemGUIDLow);
     uint32 expiretime = entry->expire_time;
+#elif AZEROTHCORE
+    Item* item = eAuctionMgr->GetAItem(entry->item_guidlow);
+    uint32 expiretime = entry->expire_time;
 #else
     Item* item = eAuctionMgr->GetAItem(entry->itemGuidLow);
     uint32 expiretime = entry->expireTime;
@@ -191,6 +233,9 @@ void Eluna::OnExpire(AuctionHouseObject* /*ah*/, AuctionEntry* entry)
     Player* owner = eObjectAccessor()FindPlayer(MAKE_NEW_GUID(entry->owner, 0, HIGHGUID_PLAYER));
 #ifdef TRINITY
     Item* item = eAuctionMgr->GetAItem(entry->itemGUIDLow);
+    uint32 expiretime = entry->expire_time;
+#elif AZEROTHCORE
+    Item* item = eAuctionMgr->GetAItem(entry->item_guidlow);
     uint32 expiretime = entry->expire_time;
 #else
     Item* item = eAuctionMgr->GetAItem(entry->itemGuidLow);
@@ -220,10 +265,17 @@ void Eluna::OnOpenStateChange(bool open)
     CallAllFunctions(ServerEventBindings, key);
 }
 
+#ifndef AZEROTHCORE
 void Eluna::OnConfigLoad(bool reload)
+#else
+void Eluna::OnConfigLoad(bool reload, bool isBefore)
+#endif
 {
     START_HOOK(WORLD_EVENT_ON_CONFIG_LOAD);
     Push(reload);
+#ifdef AZEROTHCORE
+    Push(isBefore);
+#endif
     CallAllFunctions(ServerEventBindings, key);
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,10 +16,12 @@
  */
 
 #include "ScriptMgr.h"
-#include "ObjectMgr.h"
+#include "GameObject.h"
 #include "InstanceScript.h"
+#include "Map.h"
+#include "MotionMaster.h"
+#include "ObjectMgr.h"
 #include "razorfen_downs.h"
-#include "Player.h"
 #include "TemporarySummon.h"
 
 Position const PosSummonTutenkash[15] =
@@ -51,7 +53,7 @@ public:
 
     struct instance_razorfen_downs_InstanceMapScript : public InstanceScript
     {
-        instance_razorfen_downs_InstanceMapScript(Map* map) : InstanceScript(map)
+        instance_razorfen_downs_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
         {
             SetHeaders(DataHeader);
             SetBossNumber(EncounterCount);

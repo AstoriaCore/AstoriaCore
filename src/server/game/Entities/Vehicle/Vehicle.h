@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -53,6 +52,7 @@ class TC_GAME_API Vehicle : public TransportBase
         bool HasEmptySeat(int8 seatId) const;
         Unit* GetPassenger(int8 seatId) const;
         SeatMap::const_iterator GetNextEmptySeat(int8 seatId, bool next) const;
+        VehicleSeatAddon const* GetSeatAddonForSeatOfPassenger(Unit const* passenger) const;
         uint8 GetAvailableSeatCount() const;
 
         bool AddPassenger(Unit* passenger, int8 seatId = -1);
@@ -61,6 +61,7 @@ class TC_GAME_API Vehicle : public TransportBase
         void RelocatePassengers();
         void RemoveAllPassengers();
         bool IsVehicleInUse() const;
+        bool IsControllableVehicle() const;
 
         void SetLastShootPos(Position const& pos) { _lastShootPos.Relocate(pos); }
         Position const& GetLastShootPos() const { return _lastShootPos; }
@@ -70,6 +71,8 @@ class TC_GAME_API Vehicle : public TransportBase
         VehicleSeatEntry const* GetSeatForPassenger(Unit const* passenger) const;
 
         void RemovePendingEventsForPassenger(Unit* passenger);
+
+        Milliseconds GetDespawnDelay();
 
     protected:
         friend class VehicleJoinEvent;
@@ -87,7 +90,7 @@ class TC_GAME_API Vehicle : public TransportBase
         void InitMovementInfoForBase();
 
         /// This method transforms supplied transport offsets into global coordinates
-        void CalculatePassengerPosition(float& x, float& y, float& z, float* o /*= NULL*/) const override
+        void CalculatePassengerPosition(float& x, float& y, float& z, float* o /*= nullptr*/) const override
         {
             TransportBase::CalculatePassengerPosition(x, y, z, o,
                 GetBase()->GetPositionX(), GetBase()->GetPositionY(),
@@ -95,7 +98,7 @@ class TC_GAME_API Vehicle : public TransportBase
         }
 
         /// This method transforms supplied global coordinates into local offsets
-        void CalculatePassengerOffset(float& x, float& y, float& z, float* o /*= NULL*/) const override
+        void CalculatePassengerOffset(float& x, float& y, float& z, float* o /*= nullptr*/) const override
         {
             TransportBase::CalculatePassengerOffset(x, y, z, o,
                 GetBase()->GetPositionX(), GetBase()->GetPositionY(),
@@ -104,6 +107,8 @@ class TC_GAME_API Vehicle : public TransportBase
 
         void RemovePendingEvent(VehicleJoinEvent* e);
         void RemovePendingEventsForSeat(int8 seatId);
+
+        bool HasPendingEventForSeat(int8 seatId) const;
 
     private:
         Unit* _me;                                          ///< The underlying unit with the vehicle kit. Can be player or creature.

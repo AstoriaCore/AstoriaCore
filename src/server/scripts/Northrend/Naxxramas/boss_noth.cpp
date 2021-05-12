@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,8 +16,9 @@
  */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
+#include "MotionMaster.h"
 #include "naxxramas.h"
+#include "ScriptedCreature.h"
 
 enum Phases
 {
@@ -88,35 +89,29 @@ public:
             events.SetPhase(PHASE_NONE);
         }
 
-        void EnterEvadeMode(EvadeReason /*why*/) override
+        void EnterEvadeMode(EvadeReason why) override
         {
-            Reset(); // teleport back first
-            _EnterEvadeMode();
+            // in case we reset during balcony phase
+            if (events.IsInPhase(PHASE_BALCONY))
+                DoCastAOE(SPELL_TELEPORT_BACK);
+            BossAI::EnterEvadeMode(why);
         }
 
         void Reset() override
         {
-            if (!me->IsAlive())
-                return;
+            _Reset();
 
-            // in case we reset during balcony phase
-            if (events.IsInPhase(PHASE_BALCONY))
-            {
-                DoCastAOE(SPELL_TELEPORT_BACK);
-                me->SetReactState(REACT_AGGRESSIVE);
-                me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE);
-            }
+            me->SetReactState(REACT_AGGRESSIVE);
+            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
 
             balconyCount = 0;
             events.SetPhase(PHASE_NONE);
             justBlinked = false;
-
-            _Reset();
         }
 
-        void EnterCombat(Unit* /*who*/) override
+        void JustEngagedWith(Unit* who) override
         {
-            _EnterCombat();
+            BossAI::JustEngagedWith(who);
             Talk(SAY_AGGRO);
             EnterPhaseGround();
         }
@@ -127,8 +122,8 @@ public:
 
             DoZoneInCombat();
 
-            if (me->getThreatManager().isThreatListEmpty())
-                Reset();
+            if (!me->IsThreatened())
+                EnterEvadeMode(EVADE_REASON_NO_HOSTILES);
             else
             {
                 uint8 timeGround;
@@ -163,7 +158,8 @@ public:
         {
             summons.Summon(summon);
             summon->setActive(true);
-            summon->AI()->DoZoneInCombat(nullptr, 250.0f); // specify range to cover entire room - default 50yd is not enough
+            summon->SetFarVisible(true);
+            summon->AI()->DoZoneInCombat();
         }
 
         void JustDied(Unit* /*killer*/) override
@@ -234,7 +230,7 @@ public:
                     case EVENT_BLINK:
                         DoCastAOE(SPELL_CRIPPLE, true);
                         DoCastAOE(SPELL_BLINK);
-                        DoResetThreat();
+                        ResetThreatList();
                         justBlinked = true;
 
                         events.Repeat(Seconds(40));
@@ -242,7 +238,7 @@ public:
                     case EVENT_BALCONY:
                         events.SetPhase(PHASE_BALCONY);
                         me->SetReactState(REACT_PASSIVE);
-                        me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE);
+                        me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
                         me->AttackStop();
                         me->StopMoving();
                         me->RemoveAllAuras();
@@ -298,7 +294,7 @@ public:
                         EnterPhaseGround();
                         break;
                     case EVENT_GROUND_ATTACKABLE:
-                        me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE);
+                        me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
                         me->SetReactState(REACT_AGGRESSIVE);
                         break;
                 }
@@ -334,7 +330,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<boss_nothAI>(creature);
+        return GetNaxxramasAI<boss_nothAI>(creature);
     }
 };
 

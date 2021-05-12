@@ -135,7 +135,7 @@ std::string Transmogrification::GetItemIcon(uint32 entry, uint32 width, uint32 h
     {
         dispInfo = sItemDisplayInfoStore.LookupEntry(temp->DisplayInfoID);
         if (dispInfo)
-            ss << "/ICONS/" << dispInfo->inventoryIcon;
+            ss << "/ICONS/" << dispInfo->InventoryIcon[0];
     }
     if (!dispInfo)
         ss << "/InventoryItems/WoWUnknownItem01";
@@ -183,22 +183,20 @@ std::string Transmogrification::GetItemLink(Item* item, WorldSession* session) c
 
     if (int32 itemRandPropId = item->GetItemRandomPropertyId())
     {
-        char* const* suffix = NULL;
+        std::array<char const*, 16> const* suffix = nullptr;
         if (itemRandPropId < 0)
         {
-            const ItemRandomSuffixEntry* itemRandEntry = sItemRandomSuffixStore.LookupEntry(-item->GetItemRandomPropertyId());
-            if (itemRandEntry)
-                suffix = itemRandEntry->nameSuffix;
+            if (const ItemRandomSuffixEntry* itemRandEntry = sItemRandomSuffixStore.LookupEntry(-itemRandPropId))
+                suffix = &itemRandEntry->Name;
         }
         else
         {
-            const ItemRandomPropertiesEntry* itemRandEntry = sItemRandomPropertiesStore.LookupEntry(item->GetItemRandomPropertyId());
-            if (itemRandEntry)
-                suffix = itemRandEntry->nameSuffix;
+            if (const ItemRandomPropertiesEntry* itemRandEntry = sItemRandomPropertiesStore.LookupEntry(itemRandPropId))
+                suffix = &itemRandEntry->Name;
         }
         if (suffix)
         {
-            std::string test(suffix[(name != temp->Name1) ? loc_idx : DEFAULT_LOCALE]);
+            std::string_view test((*suffix)[(name != temp->Name1) ? loc_idx : DEFAULT_LOCALE]);
             if (!test.empty())
             {
                 name += ' ';
@@ -216,7 +214,7 @@ std::string Transmogrification::GetItemLink(Item* item, WorldSession* session) c
         item->GetEnchantmentId(SOCK_ENCHANTMENT_SLOT_3) << ":" <<
         item->GetEnchantmentId(BONUS_ENCHANTMENT_SLOT) << ":" <<
         item->GetItemRandomPropertyId() << ":" << item->GetItemSuffixFactor() << ":" <<
-        (uint32)item->GetOwner()->getLevel() << "|h[" << name << "]|h|r";
+        (uint32)item->GetOwner()->GetLevel() << "|h[" << name << "]|h|r";
 
     return oss.str();
 }
@@ -446,10 +444,10 @@ bool Transmogrification::SuitableForTransmogrification(Player* player, ItemTempl
     if ((proto->Flags2 & ITEM_FLAG2_FACTION_ALLIANCE) && player->GetTeam() != ALLIANCE)
         return false;
 
-    if (!IgnoreReqClass && (proto->AllowableClass & player->getClassMask()) == 0)
+    if (!IgnoreReqClass && (proto->AllowableClass & player->GetClassMask()) == 0)
         return false;
 
-    if (!IgnoreReqRace && (proto->AllowableRace & player->getRaceMask()) == 0)
+    if (!IgnoreReqRace && (proto->AllowableRace & player->GetRaceMask()) == 0)
         return false;
 
     if (!IgnoreReqSkill && proto->RequiredSkill != 0)
@@ -463,7 +461,7 @@ bool Transmogrification::SuitableForTransmogrification(Player* player, ItemTempl
     if (!IgnoreReqSpell && proto->RequiredSpell != 0 && !player->HasSpell(proto->RequiredSpell))
         return false;
 
-    if (!IgnoreReqLevel && player->getLevel() < proto->RequiredLevel)
+    if (!IgnoreReqLevel && player->GetLevel() < proto->RequiredLevel)
         return false;
 
     // If World Event is not active, prevent using event dependant items

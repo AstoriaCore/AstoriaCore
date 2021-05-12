@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,25 +16,37 @@
  */
 
 #include "UpdateFetcher.h"
+#include "Common.h"
+#include "DBUpdater.h"
+#include "Field.h"
+#include "CryptoHash.h"
 #include "Log.h"
+#include "QueryResult.h"
 #include "Util.h"
-#include "SHA1.h"
-
+#include <boost/filesystem/operations.hpp>
 #include <fstream>
-#include <chrono>
-#include <vector>
 #include <sstream>
-#include <exception>
-#include <unordered_map>
 
 using namespace boost::filesystem;
+
+struct UpdateFetcher::DirectoryEntry
+{
+    DirectoryEntry(Path const& path_, State state_) : path(path_), state(state_) { }
+
+    Path const path;
+    State const state;
+};
 
 UpdateFetcher::UpdateFetcher(Path const& sourceDirectory,
     std::function<void(std::string const&)> const& apply,
     std::function<void(Path const& path)> const& applyFile,
     std::function<QueryResult(std::string const&)> const& retrieve) :
-        _sourceDirectory(sourceDirectory), _apply(apply), _applyFile(applyFile),
+        _sourceDirectory(std::make_unique<Path>(sourceDirectory)), _apply(apply), _applyFile(applyFile),
         _retrieve(retrieve)
+{
+}
+
+UpdateFetcher::~UpdateFetcher()
 {
 }
 
@@ -95,7 +107,7 @@ UpdateFetcher::DirectoryStorage UpdateFetcher::ReceiveIncludedDirectories() cons
 
         std::string path = fields[0].GetString();
         if (path.substr(0, 1) == "$")
-            path = _sourceDirectory.generic_string() + path.substr(1);
+            path = _sourceDirectory->generic_string() + path.substr(1);
 
         Path const p(path);
 
@@ -210,7 +222,7 @@ UpdateResult UpdateFetcher::Update(bool const redundancyChecks,
         }
 
         // Calculate a Sha1 hash based on query content.
-        std::string const hash = CalculateSHA1Hash(ReadSQLUpdate(availableQuery.first));
+        std::string const hash = ByteArrayToHexStr(Trinity::Crypto::SHA1::GetDigestOf(ReadSQLUpdate(availableQuery.first)));
 
         UpdateMode mode = MODE_APPLY;
 
@@ -294,7 +306,7 @@ UpdateResult UpdateFetcher::Update(bool const redundancyChecks,
         {
             case MODE_APPLY:
                 speed = Apply(availableQuery.first);
-                /*no break*/
+                [[fallthrough]];
             case MODE_REHASH:
                 UpdateEntry(file, speed);
                 break;
@@ -404,4 +416,9 @@ void UpdateFetcher::UpdateState(std::string const& name, State const state) cons
 
     // Update database
     _apply(update);
+}
+
+bool UpdateFetcher::PathCompare::operator()(LocaleFileEntry const& left, LocaleFileEntry const& right) const
+{
+    return left.first.filename().string() < right.first.filename().string();
 }

@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -26,12 +25,13 @@ EndScriptData */
 /* ContentData
 npc_millhouse_manastorm
 npc_warden_mellichar
-npc_zerekethvoidzone
 EndContentData */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
 #include "arcatraz.h"
+#include "InstanceScript.h"
+#include "MotionMaster.h"
+#include "ScriptedCreature.h"
 
 /*#####
 # npc_millhouse_manastorm
@@ -73,7 +73,7 @@ class npc_millhouse_manastorm : public CreatureScript
 
         struct npc_millhouse_manastormAI : public ScriptedAI
         {
-            npc_millhouse_manastormAI(Creature* creature) : ScriptedAI(creature)
+            npc_millhouse_manastormAI(Creature* creature) : ScriptedAI(creature), Init(false)
             {
                 Initialize();
                 instance = creature->GetInstanceScript();
@@ -83,7 +83,6 @@ class npc_millhouse_manastorm : public CreatureScript
             {
                 EventProgress_Timer = 2000;
                 LowHp = false;
-                Init = false;
                 Phase = 1;
 
                 Pyroblast_Timer = 1000;
@@ -105,7 +104,10 @@ class npc_millhouse_manastorm : public CreatureScript
                 Initialize();
 
                 if (instance->GetData(DATA_WARDEN_2) == DONE)
+                {
                     Init = true;
+                    me->SetImmuneToNPC(false);
+                }
 
                 if (instance->GetBossState(DATA_HARBINGER_SKYRISS) == DONE)
                     Talk(SAY_COMPLETE);
@@ -115,7 +117,7 @@ class npc_millhouse_manastorm : public CreatureScript
             {
                 if (me->Attack(who, true))
                 {
-                    me->AddThreat(who, 0.0f);
+                    AddThreat(who, 0.0f);
                     me->SetInCombatWith(who);
                     who->SetInCombatWith(me);
                     me->GetMotionMaster()->MoveChase(who, 25.0f);
@@ -177,6 +179,7 @@ class npc_millhouse_manastorm : public CreatureScript
                             case 7:
                                 instance->SetData(DATA_WARDEN_2, DONE);
                                 Init = true;
+                                me->SetImmuneToNPC(false);
                                 break;
                             }
                             ++Phase;
@@ -324,11 +327,11 @@ class npc_warden_mellichar : public CreatureScript
 
                     float attackRadius = me->GetAttackDistance(who)/10;
                     if (me->IsWithinDistInMap(who, attackRadius) && me->IsWithinLOSInMap(who))
-                        EnterCombat(who);
+                        JustEngagedWith(who);
                 }
             }
 
-            void EnterCombat(Unit* /*who*/) override
+            void JustEngagedWith(Unit* /*who*/) override
             {
                 Talk(YELL_INTRO1);
                 DoCast(me, SPELL_BUBBLE_VISUAL);
@@ -341,7 +344,7 @@ class npc_warden_mellichar : public CreatureScript
             void JustSummoned(Creature* summon) override
             {
                 DoZoneInCombat(summon);
-                if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 100.0f, true))
+                if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 100.0f, true))
                     summon->AI()->AttackStart(target);
             }
 
@@ -421,15 +424,15 @@ class npc_warden_mellichar : public CreatureScript
                             switch (urand(0, 1))
                             {
                             case 0:
-                                me->SummonCreature(ENTRY_TRICKSTER, 478.326f, -148.505f, 42.56f, 3.19f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 600000);
+                                me->SummonCreature(ENTRY_TRICKSTER, 472.231f, -150.86f, 42.6573f, 3.10669f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 10min); // random pos
                                 break;
                             case 1:
-                                me->SummonCreature(ENTRY_PH_HUNTER, 478.326f, -148.505f, 42.56f, 3.19f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 600000);
+                                me->SummonCreature(ENTRY_PH_HUNTER, 472.231f, -150.86f, 42.6573f, 3.10669f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 10min); // random pos
                                 break;
                             }
                             break;
                         case 3:
-                            me->SummonCreature(ENTRY_MILLHOUSE, 413.292f, -148.378f, 42.56f, 6.27f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 600000);
+                            me->SummonCreature(ENTRY_MILLHOUSE, 417.242f, -149.795f, 42.6548f, 0.191986f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 10min); // static pos
                             break;
                         case 4:
                             Talk(YELL_RELEASE2B);
@@ -438,10 +441,10 @@ class npc_warden_mellichar : public CreatureScript
                             switch (urand(0, 1))
                             {
                             case 0:
-                                me->SummonCreature(ENTRY_AKKIRIS, 420.179f, -174.396f, 42.58f, 0.02f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 600000);
+                                me->SummonCreature(ENTRY_AKKIRIS, 420.851f, -174.337f, 42.6655f, 0.122173f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 10min); // random pos
                                 break;
                             case 1:
-                                me->SummonCreature(ENTRY_SULFURON, 420.179f, -174.396f, 42.58f, 0.02f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 600000);
+                                me->SummonCreature(ENTRY_SULFURON, 420.851f, -174.337f, 42.6655f, 0.122173f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 10min); // random pos
                                 break;
                             }
                             break;
@@ -449,15 +452,15 @@ class npc_warden_mellichar : public CreatureScript
                             switch (urand(0, 1))
                             {
                             case 0:
-                                me->SummonCreature(ENTRY_TW_DRAK, 471.795f, -174.58f, 42.58f, 3.06f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 600000);
+                                me->SummonCreature(ENTRY_TW_DRAK, 470.364f, -174.656f, 42.6753f, 3.59538f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 10min); // random pos
                                 break;
                             case 1:
-                                me->SummonCreature(ENTRY_BL_DRAK, 471.795f, -174.58f, 42.58f, 3.06f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 600000);
+                                me->SummonCreature(ENTRY_BL_DRAK, 470.364f, -174.656f, 42.6753f, 3.59538f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 10min); // random pos
                                 break;
                             }
                             break;
                         case 7:
-                            me->SummonCreature(ENTRY_SKYRISS, 445.763f, -191.639f, 44.64f, 1.60f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 600000);
+                            me->SummonCreature(ENTRY_SKYRISS, 446.086f, -182.506f, 44.0852f, 1.5708f, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, 10min); // static pos
                             Talk(YELL_WELCOME);
                             break;
                         }
@@ -515,47 +518,8 @@ class npc_warden_mellichar : public CreatureScript
         }
 };
 
-/*#####
-# npc_zerekethvoidzone (this script probably not needed in future -> `creature_template_addon`.`auras`='36120 0')
-#####*/
-
-enum ZerekethSpell
-{
-    SPELL_VOID_ZONE_DAMAGE = 36120,
-};
-
-class npc_zerekethvoidzone : public CreatureScript
-{
-    public:
-
-        npc_zerekethvoidzone() : CreatureScript("npc_zerekethvoidzone")
-        {
-        }
-        struct npc_zerekethvoidzoneAI : public ScriptedAI
-        {
-            npc_zerekethvoidzoneAI(Creature* creature) : ScriptedAI(creature) { }
-
-            void Reset() override
-            {
-                me->SetUInt32Value(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_NONE);
-                me->setFaction(16);
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
-
-                DoCast(me, SPELL_VOID_ZONE_DAMAGE);
-            }
-
-            void EnterCombat(Unit* /*who*/) override { }
-        };
-
-        CreatureAI* GetAI(Creature* creature) const override
-        {
-            return new npc_zerekethvoidzoneAI(creature);
-        }
-};
-
 void AddSC_arcatraz()
 {
     new npc_millhouse_manastorm();
     new npc_warden_mellichar();
-    new npc_zerekethvoidzone();
 }

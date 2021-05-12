@@ -21,7 +21,7 @@ public:
 
 	static int32 GetXpRateFromDB(const Player *player)
 	{
-		PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_INDIVIDUAL_XP_RATE);
+		CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_INDIVIDUAL_XP_RATE);
 		stmt->setUInt32(0, player->GetGUID());
 		PreparedQueryResult result = CharacterDatabase.Query(stmt);
 
@@ -35,14 +35,14 @@ public:
 	{
 		if (update)
 		{
-			PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_INDIVIDUAL_XP_RATE);
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_INDIVIDUAL_XP_RATE);
 			stmt->setUInt32(0, rate);
 			stmt->setUInt32(1, player->GetGUID());
 			CharacterDatabase.Execute(stmt);
 		}
 		else
 		{
-			PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_INDIVIDUAL_XP_RATE);
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_INDIVIDUAL_XP_RATE);
 			stmt->setUInt32(0, player->GetGUID());
 			stmt->setUInt32(1, rate);
 			CharacterDatabase.Execute(stmt);
@@ -71,7 +71,7 @@ public:
 			CustomRates::SaveXpRateToDB(player, 4, false);
 		}
 
-		if (rate != -1 && player->getLevel() != sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL))
+		if (rate != -1 && player->GetLevel() != sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL))
 		{
 			uint32 uRate = static_cast<uint32>(rate);
 			player->SetCustomXpRate(uRate);
@@ -87,32 +87,32 @@ public:
 	}
 };
 
-class npc_rate : public CreatureScript
+class npc_rate : public ScriptedAI
 {
 public:
-	npc_rate() : CreatureScript("npc_rate") {}
+	npc_rate(Creature* creature) : ScriptedAI(creature) {}
 
-	bool OnGossipHello(Player* player, Creature* creature)
+	bool OnGossipHello(Player* player) override
 	{
 		AddGossipItemFor(player, 0, "Change my XP rate", GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 1, "", 0, true);
 		AddGossipItemFor(player, 0, "Show my current XP rate", GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 2);
 		AddGossipItemFor(player, 0, "Nevermind", GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 3);
 
-		player->PlayerTalkClass->SendGossipMenu(907, creature->GetGUID());
+		player->PlayerTalkClass->SendGossipMenu(907, me->GetGUID());
 
 		return true;
 	}
 
-	bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action)
+	bool OnGossipSelect(Player* player, uint32 /*sender*/, uint32 gossipDef) override
 	{
 		player->PlayerTalkClass->ClearMenus();
-
+        auto action = player->PlayerTalkClass->GetGossipOptionAction(gossipDef);
 		if (action == GOSSIP_ACTION_INFO_DEF + 2)
 		{
 			// show custom XP rate
 			int32 rate = CustomRates::GetXpRateFromDB(player);
 
-			if (rate != -1 && player->getLevel() != sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL))
+			if (rate != -1 && player->GetLevel() != sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL))
 			{
 				uint32 uRate = static_cast<uint32>(rate);
 				if (uRate)
@@ -130,10 +130,13 @@ public:
 		return true;
 	}
 
-	bool OnGossipSelectCode(Player* player, Creature* creature, uint32 sender, uint32 action, char const* code)
+	bool OnGossipSelectCode(Player* player, uint32 senders, uint32 gossipDef, char const* code) override
 	{
 		player->PlayerTalkClass->ClearMenus();
 		CloseGossipMenuFor(player);
+        auto sender = player->PlayerTalkClass->GetGossipOptionSender(gossipDef);
+        auto action = player->PlayerTalkClass->GetGossipOptionAction(gossipDef);
+
 		if (sender == GOSSIP_SENDER_MAIN)
 		{
 			if (action == GOSSIP_ACTION_INFO_DEF + 1)
@@ -146,7 +149,7 @@ public:
 				}
 
 				// already at max level, no point
-				if (player->getLevel() == sWorld->getIntConfig(CONFIG_CUSTOM_XP_LEVEL))
+				if (player->GetLevel() == sWorld->getIntConfig(CONFIG_CUSTOM_XP_LEVEL))
 				{
 					ChatHandler(player->GetSession()).PSendSysMessage("|TInterface/ICONS/trade_engineering:10|t|CFF7BBEF7[Astoria Rates]|r: You are already at maximum level.");
 					return false;
@@ -192,5 +195,5 @@ public:
 void AddSC_Custom_Rates()
 {
 	new add_del_rates();
-	new npc_rate();
+	RegisterCreatureAI(npc_rate);
 }

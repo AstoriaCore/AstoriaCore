@@ -15,6 +15,7 @@
 #include "Chat.h"
 #include "Channel.h"
 #include "DBCStores.h"
+#include "GameEventMgr.h"
 #include "GossipDef.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
@@ -38,18 +39,29 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 
-#ifdef TRINITY
+#if defined TRINITY
+#include "GitRevision.h"
+#include "SpellHistory.h"
+#endif
+
+#if defined TRINITY || defined AZEROTHCORE
 #include "Config.h"
+#include "GameEventMgr.h"
 #include "GroupMgr.h"
 #include "ScriptedCreature.h"
 #include "SpellInfo.h"
 #include "WeatherMgr.h"
 #include "Battleground.h"
-#include "GitRevision.h"
-#include "SpellHistory.h"
+#include "MotionMaster.h"
+#include "DatabaseEnv.h"
+#include "Bag.h"
 #else
 #include "Config/Config.h"
+#ifdef CMANGOS
+#include "AI/AggressorAI.h"
+#else
 #include "AggressorAI.h"
+#endif
 #include "BattleGroundMgr.h"
 #include "SQLStorages.h"
 #include "revision.h"
@@ -91,16 +103,30 @@ typedef Opcodes                 OpcodesList;
 #define eObjectMgr              (sObjectMgr)
 #define eAccountMgr             (sAccountMgr)
 #define eAuctionMgr             (sAuctionMgr)
+#define eGameEventMgr           (sGameEventMgr)
 #define eObjectAccessor()       ObjectAccessor::
 #define REGEN_TIME_FULL
-typedef ThreatContainer::StorageType ThreatList;
 
 #ifdef CATA
 #define NUM_MSG_TYPES           NUM_OPCODE_HANDLERS
 #endif
 #endif
 
-#ifndef TRINITY
+#ifdef AZEROTHCORE
+#define CORE_NAME               "AzerothCore"
+#define CORE_VERSION            ""
+#define eWorld                  (sWorld)
+#define eMapMgr                 (sMapMgr)
+#define eConfigMgr              (sConfigMgr)
+#define eGuildMgr               (sGuildMgr)
+#define eObjectMgr              (sObjectMgr)
+#define eAccountMgr             (sAccountMgr)
+#define eAuctionMgr             (sAuctionMgr)
+#define eGameEventMgr           (sGameEventMgr)
+#define eObjectAccessor()       ObjectAccessor::
+#endif
+
+#if !defined TRINITY && !AZEROTHCORE
 #define eWorld                  (&sWorld)
 #define eMapMgr                 (&sMapMgr)
 #define eConfigMgr              (&sConfig)
@@ -108,15 +134,15 @@ typedef ThreatContainer::StorageType ThreatList;
 #define eObjectMgr              (&sObjectMgr)
 #define eAccountMgr             (&sAccountMgr)
 #define eAuctionMgr             (&sAuctionMgr)
+#define eGameEventMgr           (&sGameEventMgr)
 #define eObjectAccessor()       sObjectAccessor.
 #define SERVER_MSG_STRING       SERVER_MSG_CUSTOM
 #define TOTAL_LOCALES           MAX_LOCALE
-#define DIALOG_STATUS_SCRIPTED_NO_STATUS    DIALOG_STATUS_UNDEFINED
 #define TARGETICONCOUNT         TARGET_ICON_COUNT
 #define MAX_TALENT_SPECS        MAX_TALENT_SPEC_COUNT
 #define TEAM_NEUTRAL            TEAM_INDEX_NEUTRAL
 
-#ifndef CLASSIC
+#if defined(TBC) || defined(WOTLK) || defined(CATA)
 #define PLAYER_FIELD_LIFETIME_HONORABLE_KILLS   PLAYER_FIELD_LIFETIME_HONORBALE_KILLS
 #endif
 
@@ -124,16 +150,12 @@ typedef ThreatContainer::StorageType ThreatList;
 #define SPELL_AURA_MOD_KILL_XP_PCT  SPELL_AURA_MOD_XP_PCT
 #endif
 
+#if defined(CATA) || defined(MISTS) || (defined(WOTLK) && !defined(MANGOS))
+#define UNIT_BYTE2_FLAG_SANCTUARY   UNIT_BYTE2_FLAG_SUPPORTABLE
+#endif
+
 typedef TemporarySummon TempSummon;
 typedef SpellEntry SpellInfo;
-enum SelectAggroTarget
-{
-    SELECT_TARGET_RANDOM = 0,   // Just selects a random target
-    SELECT_TARGET_TOPAGGRO,     // Selects targes from top aggro to bottom
-    SELECT_TARGET_BOTTOMAGGRO,  // Selects targets from bottom aggro to top
-    SELECT_TARGET_NEAREST,
-    SELECT_TARGET_FARTHEST
-};
 #endif // TRINITY
 
 #endif // _ELUNA_INCLUDES_H

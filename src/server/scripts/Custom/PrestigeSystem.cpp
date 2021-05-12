@@ -4,6 +4,7 @@
 #include "ScriptedGossip.h"
 #include "WorldSession.h"
 #include "Chat.h"
+#include "DatabaseEnv.h"
 
 static const int GOSSIP_MENU = 68;
 static const int UPGRADE_TOKEN_ENTRY = 49927;
@@ -416,41 +417,41 @@ public:
 	}
 };
 
-class PrestigeSystemGossip : public CreatureScript
+class PrestigeSystemGossip : public ScriptedAI
 {
 public:
-	PrestigeSystemGossip() : CreatureScript("PrestigeSystemGossip") { }
+	PrestigeSystemGossip(Creature* creature) : ScriptedAI(creature) { }
 
-	bool OnGossipHello(Player* player, Creature* creature)
+	bool OnGossipHello(Player* player) override
 	{
 		player->PlayerTalkClass->ClearMenus();
-		PrestigeSystemMenu::sendMain(player, creature);
+		PrestigeSystemMenu::sendMain(player, me);
 		return true;
 	}
 
-	bool OnGossipSelect(Player* player, Creature* creature, uint32 sender, uint32 action)
+	bool OnGossipSelect(Player* player, uint32 sender, uint32 gossipDef) override
 	{
+        auto action = player->PlayerTalkClass->GetGossipOptionSender(gossipDef);
 		player->PlayerTalkClass->ClearMenus();
-
 		switch (action)
 		{
 		case MENU_MAIN:
-			PrestigeSystemMenu::sendMain(player, creature);
+			PrestigeSystemMenu::sendMain(player, me);
 			break;
 		case MENU_PRESTIGE_PERKS:
-			PrestigeSystemMenu::sendPrestigePerks(player, creature);
+			PrestigeSystemMenu::sendPrestigePerks(player, me);
 			break;
 		case MENU_WHAT_IS_PRESTIGE:
-			PrestigeSystemMenu::sendWhatIsPrestige(player, creature);
+			PrestigeSystemMenu::sendWhatIsPrestige(player, me);
 			break;
 		case MENU_RESET_POINTS:
-			PrestigeSystemMenu::sendResetPoints(player, creature);
+			PrestigeSystemMenu::sendResetPoints(player, me);
 			break;
 		case MENU_RESET_POINTS_ACTIVE:
-			PrestigeSystemMenu::sendResetPointsActive(player, creature);
+			PrestigeSystemMenu::sendResetPointsActive(player, me);
 			break;
 		default:
-			PrestigeSystemMenu::handleNonDefinedMenu(player, creature, action);
+			PrestigeSystemMenu::handleNonDefinedMenu(player, me, action);
 			break;
 		}
 
@@ -471,6 +472,6 @@ public:
 
 void AddSC_PrestigeSystem()
 {
-	new PrestigeSystemGossip();
+	RegisterCreatureAI(PrestigeSystemGossip);
 	new PrestigeSystemPlayer();
 }

@@ -27,8 +27,8 @@ void AddSC_Custom_Rates();
 void AddSC_npc_rank_trainer();
 void AddSC_race_npc();
 void AddSC_AstoriaHonorSystem();
-//void AddSC_CustomSpellSystem();
-//void AddSC_PrestigeSystem();
+void AddSC_CustomSpellSystem();
+void AddSC_PrestigeSystem();
 
 // The name of this function should match:
 // void Add${NameOfDirectory}Scripts()

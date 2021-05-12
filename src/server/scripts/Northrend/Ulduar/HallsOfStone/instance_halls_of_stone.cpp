@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,10 +15,13 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "InstanceScript.h"
-#include "Player.h"
 #include "ScriptMgr.h"
+#include "Creature.h"
+#include "GameObject.h"
 #include "halls_of_stone.h"
+#include "InstanceScript.h"
+#include "Map.h"
+#include "Player.h"
 
 DoorData const doorData[] =
 {
@@ -33,7 +36,7 @@ class instance_halls_of_stone : public InstanceMapScript
 
         struct instance_halls_of_stone_InstanceMapScript : public InstanceScript
         {
-            instance_halls_of_stone_InstanceMapScript(Map* map) : InstanceScript(map)
+            instance_halls_of_stone_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
             {
                 SetHeaders(DataHeader);
                 SetBossNumber(EncounterCount);
@@ -72,6 +75,8 @@ class instance_halls_of_stone : public InstanceMapScript
 
             void OnGameObjectCreate(GameObject* go) override
             {
+                InstanceScript::OnGameObjectCreate(go);
+
                 switch (go->GetEntry())
                 {
                     case GO_ABEDNEUM:
@@ -94,21 +99,6 @@ class instance_halls_of_stone : public InstanceMapScript
                         break;
                     case GO_TRIBUNAL_SKY_FLOOR:
                         TribunalSkyFloorGUID = go->GetGUID();
-                        break;
-                    case GO_SJONNIR_DOOR:
-                        AddDoor(go, true);
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            void OnGameObjectRemove(GameObject* go) override
-            {
-                switch (go->GetEntry())
-                {
-                    case GO_SJONNIR_DOOR:
-                        AddDoor(go, false);
                         break;
                     default:
                         break;

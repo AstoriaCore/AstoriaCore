@@ -1,20 +1,3 @@
--- --------------------------------------------------------
--- Host:                         127.0.0.1
--- Server Version:               5.7.31-log - MySQL Community Server (GPL)
--- Server Betriebssystem:        Win64
--- HeidiSQL Version:             11.0.0.5919
--- --------------------------------------------------------
-
-/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
-/*!40101 SET NAMES utf8 */;
-/*!50503 SET NAMES utf8mb4 */;
-/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
-/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
-
-
--- Exportiere Datenbank Struktur für characters
-CREATE DATABASE IF NOT EXISTS `characters` /*!40100 DEFAULT CHARACTER SET utf8 */;
-USE `characters`;
 
 -- Exportiere Struktur von Tabelle characters.character_honor
 DROP TABLE IF EXISTS `character_honor`;

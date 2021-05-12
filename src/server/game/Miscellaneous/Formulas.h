@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,10 +18,14 @@
 #ifndef TRINITY_FORMULAS_H
 #define TRINITY_FORMULAS_H
 
-#include "World.h"
-#include "SharedDefines.h"
-#include "ScriptMgr.h"
+#include "DBCStores.h"
+#include "Creature.h"
+#include "Log.h"
+#include "Map.h"
 #include "Player.h"
+#include "ScriptMgr.h"
+#include "SharedDefines.h"
+#include "World.h"
 
 namespace Trinity
 {
@@ -154,6 +157,13 @@ namespace Trinity
                     baseGain = 0;
             }
 
+            if (sWorld->getIntConfig(CONFIG_MIN_CREATURE_SCALED_XP_RATIO))
+            {
+                // Use mob level instead of player level to avoid overscaling on gain in a min is enforced
+                uint32 baseGainMin = (mob_level * 5 + nBaseExp) * sWorld->getIntConfig(CONFIG_MIN_CREATURE_SCALED_XP_RATIO) / 100;
+                baseGain = std::max(baseGainMin, baseGain);
+            }
+
             sScriptMgr->OnBaseGainCalculation(baseGain, pl_level, mob_level, content);
             return baseGain;
         }
@@ -163,12 +173,11 @@ namespace Trinity
             Creature* creature = u->ToCreature();
             uint32 gain = 0;
 
-            if (!creature || (!creature->IsTotem() && !creature->IsPet() && !creature->IsCritter() &&
-                !(creature->GetCreatureTemplate()->flags_extra & CREATURE_FLAG_EXTRA_NO_XP_AT_KILL)))
+            if (!creature || creature->CanGiveExperience())
             {
                 float xpMod = 1.0f;
 
-                gain = BaseGain(player->getLevel(), u->getLevel(), GetContentLevelsForMapAndZone(u->GetMapId(), u->GetZoneId()));
+                gain = BaseGain(player->GetLevel(), u->GetLevel(), GetContentLevelsForMapAndZone(u->GetMapId(), u->GetZoneId()));
 
                 if (gain && creature)
                 {
@@ -184,9 +193,9 @@ namespace Trinity
                     xpMod *= creature->GetCreatureTemplate()->ModExperience;
                 }
 
-                xpMod *= isBattleGround ? sWorld->getRate(RATE_XP_BG_KILL) : sWorld->getRate(RATE_XP_KILL) * player->GetCustomXpRate();
+                xpMod *= isBattleGround ? sWorld->getRate(RATE_XP_BG_KILL) : sWorld->getRate(RATE_XP_KILL);
                 if (creature && creature->m_PlayerDamageReq) // if players dealt less than 50% of the damage and were credited anyway (due to CREATURE_FLAG_EXTRA_NO_PLAYER_DAMAGE_REQ), scale XP gained appropriately (linear scaling)
-                    xpMod *= 1.0f - 2.0f*creature->m_PlayerDamageReq / creature->GetMaxHealth();
+                    xpMod *= 1.0f - 2.0f * creature->m_PlayerDamageReq / creature->GetMaxHealth();
 
                 gain = uint32(gain * xpMod);
             }
@@ -199,31 +208,31 @@ namespace Trinity
         {
             float rate;
 
-			if (isRaid)
-			{
-				// FIXME: Must apply decrease modifiers depending on raid size.
-				rate = 1.0f;
-			}
-			else
-			{
-				switch (count)
-				{
-				case 0:
-				case 1:
-				case 2:
-					rate = 1.0f;
-					break;
-				case 3:
-					rate = 1.166f;
-					break;
-				case 4:
-					rate = 1.3f;
-					break;
-				case 5:
-				default:
-					rate = 1.4f;
-				}
-			}
+            if (isRaid)
+            {
+                // FIXME: Must apply decrease modifiers depending on raid size.
+                rate = 1.0f;
+            }
+            else
+            {
+                switch (count)
+                {
+                    case 0:
+                    case 1:
+                    case 2:
+                        rate = 1.0f;
+                        break;
+                    case 3:
+                        rate = 1.166f;
+                        break;
+                    case 4:
+                        rate = 1.3f;
+                        break;
+                    case 5:
+                    default:
+                        rate = 1.4f;
+                }
+            }
 
             sScriptMgr->OnGroupRateCalculation(rate, count, isRaid);
             return rate;

@@ -1,3 +1,6 @@
+#include "DatabaseEnv.h"
+#include "Log.h"
+
 #ifndef MAP_REGULATOR_H
 #define MAP_REGULATOR_H
 

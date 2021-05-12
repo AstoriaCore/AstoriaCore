@@ -14,6 +14,28 @@
 #include "ElunaCreatureAI.h"
 #include "ElunaInstanceAI.h"
 
+#if defined(TRINITY_PLATFORM) && defined(TRINITY_PLATFORM_WINDOWS)
+#if TRINITY_PLATFORM == TRINITY_PLATFORM_WINDOWS
+#define ELUNA_WINDOWS
+#endif
+#elif defined(AC_PLATFORM) && defined(AC_PLATFORM_WINDOWS)
+#if AC_PLATFORM == AC_PLATFORM_WINDOWS
+#define ELUNA_WINDOWS
+#endif
+#elif defined(PLATFORM) && defined(PLATFORM_WINDOWS)
+#if PLATFORM == PLATFORM_WINDOWS
+#define ELUNA_WINDOWS
+#endif
+#else
+#error Eluna could not determine platform
+#endif
+
+// Some dummy includes containing BOOST_VERSION:
+// ObjectAccessor.h Config.h Log.h
+#if !defined MANGOS && !defined AZEROTHCORE
+#define USING_BOOST
+#endif
+
 #ifdef USING_BOOST
 #include <boost/filesystem.hpp>
 #else
@@ -48,7 +70,7 @@ void Eluna::Initialize()
     LOCK_ELUNA;
     ASSERT(!IsInitialized());
 
-#ifdef TRINITY
+#if defined TRINITY || AZEROTHCORE
     // For instance data the data column needs to be able to hold more than 255 characters (tinytext)
     // so we change it to TEXT automatically on startup
     CharacterDatabase.DirectExecute("ALTER TABLE `instance` CHANGE COLUMN `data` `data` TEXT NOT NULL");
@@ -86,7 +108,7 @@ void Eluna::LoadScriptPaths()
     lua_extensions.clear();
 
     lua_folderpath = eConfigMgr->GetStringDefault("Eluna.ScriptPath", "lua_scripts");
-#if PLATFORM == PLATFORM_UNIX || PLATFORM == PLATFORM_APPLE
+#ifndef ELUNA_WINDOWS
     if (lua_folderpath[0] == '~')
         if (const char* home = getenv("HOME"))
             lua_folderpath.replace(0, 1, home);
@@ -100,22 +122,6 @@ void Eluna::LoadScriptPaths()
 
     ELUNA_LOG_DEBUG("[Eluna]: Loaded %u scripts in %u ms", uint32(lua_scripts.size() + lua_extensions.size()), ElunaUtil::GetTimeDiff(oldMSTime));
 }
-
-#ifdef TRINITY
-class ElunaAIUpdateWorker
-{
-public:
-    void Visit(std::unordered_map<ObjectGuid, Creature*>& creatureMap)
-    {
-        for (auto const& p : creatureMap)
-            if (p.second->IsInWorld())
-                p.second->AIM_Initialize();
-    }
-
-    template<class T>
-    void Visit(std::unordered_map<ObjectGuid, T*>&) { }
-};
-#endif
 
 void Eluna::_ReloadEluna()
 {
@@ -138,16 +144,6 @@ void Eluna::_ReloadEluna()
 
     // Run scripts from laoded paths
     sEluna->RunScripts();
-
-#ifdef TRINITY
-    // Re initialize creature AI restoring C++ AI or applying lua AI
-    sMapMgr->DoForAllMaps([](Map* map)
-    {
-        ElunaAIUpdateWorker worker;
-        TypeContainerVisitor<ElunaAIUpdateWorker, MapStoredObjectTypesContainer> visitor(worker);
-        visitor.Visit(map->GetObjectsStore());
-    });
-#endif
 
     reload = false;
 }
@@ -226,6 +222,10 @@ void Eluna::OpenLua()
     }
 
     L = luaL_newstate();
+
+    lua_pushlightuserdata(L, this);
+    lua_setfield(L, LUA_REGISTRYINDEX, ELUNA_STATE_PTR);
+
     CreateBindStores();
 
     // open base lua libraries
@@ -235,14 +235,6 @@ void Eluna::OpenLua()
 
     // Register methods and functions
     RegisterFunctions(this);
-
-    // Create hidden table with weak values
-    lua_newtable(L);
-    lua_newtable(L);
-    lua_pushstring(L, "v");
-    lua_setfield(L, -2, "__mode");
-    lua_setmetatable(L, -2);
-    lua_setfield(L, LUA_REGISTRYINDEX, ELUNA_OBJECT_STORE);
 
     // Set lua require folder paths (scripts folder structure)
     lua_getglobal(L, "package");
@@ -333,7 +325,7 @@ void Eluna::AddScriptPath(std::string filename, const std::string& fullpath)
     filename = filename.substr(0, extDot);
 
     // check extension and add path to scripts to load
-    if (ext != ".lua" && ext != ".dll" && ext != ".ext")
+    if (ext != ".lua" && ext != ".dll" && ext != ".so" && ext != ".ext")
         return;
     bool extension = ext == ".ext";
 
@@ -361,7 +353,6 @@ void Eluna::GetScripts(std::string path)
     if (boost::filesystem::exists(someDir) && boost::filesystem::is_directory(someDir))
     {
         lua_requirepath +=
-            path + "/?;" +
             path + "/?.lua;" +
             path + "/?.ext;" +
             path + "/?.dll;" +
@@ -372,7 +363,7 @@ void Eluna::GetScripts(std::string path)
             std::string fullpath = dir_iter->path().generic_string();
 
             // Check if file is hidden
-#if PLATFORM == PLATFORM_WINDOWS
+#ifdef ELUNA_WINDOWS
             DWORD dwAttrib = GetFileAttributes(fullpath.c_str());
             if (dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_HIDDEN))
                 continue;
@@ -403,7 +394,6 @@ void Eluna::GetScripts(std::string path)
         return;
 
     lua_requirepath +=
-        path + "/?;" +
         path + "/?.lua;" +
         path + "/?.ext;" +
         path + "/?.dll;" +
@@ -419,12 +409,12 @@ void Eluna::GetScripts(std::string path)
         std::string fullpath = path + "/" + directory->d_name;
 
         // Check if file is hidden
-#if PLATFORM == PLATFORM_WINDOWS
+#ifdef ELUNA_WINDOWS
         DWORD dwAttrib = GetFileAttributes(fullpath.c_str());
         if (dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_HIDDEN))
             continue;
 #else
-        std::string name = directory->d_name.c_str();
+        std::string name = directory->d_name;
         if (name[0] == '.')
             continue;
 #endif
@@ -532,18 +522,12 @@ void Eluna::RunScripts()
 
 void Eluna::InvalidateObjects()
 {
-    lua_pushstring(L, ELUNA_OBJECT_STORE);
-    lua_rawget(L, LUA_REGISTRYINDEX);
-    ASSERT(lua_istable(L, -1));
-
-    lua_pushnil(L);
-    while (lua_next(L, -2))
-    {
-        if (ElunaObject* elunaObj = CHECKOBJ<ElunaObject>(L, -1, false))
-            elunaObj->Invalidate();
-        lua_pop(L, 1);
-    }
-    lua_pop(L, 1);
+    ++callstackid;
+#ifdef TRINITY
+    ASSERT(callstackid, "Callstackid overflow");
+#else
+    ASSERT(callstackid && "Callstackid overflow");
+#endif
 }
 
 void Eluna::Report(lua_State* _L)
@@ -1053,7 +1037,12 @@ int Eluna::Register(lua_State* L, uint8 regtype, uint32 entry, uint64 guid, uint
                 }
                 else
                 {
-                    ASSERT(guid != 0);
+                    if (guid == 0)
+                    {
+                        luaL_unref(L, LUA_REGISTRYINDEX, functionRef);
+                        luaL_error(L, "guid was 0!");
+                        return 0; // Stack: (empty)
+                    }
 
                     auto key = UniqueObjectKey<Hooks::CreatureEvents>((Hooks::CreatureEvents)event_id, guid, instanceId);
                     bindingID = CreatureUniqueBindings->Insert(key, functionRef, shots);

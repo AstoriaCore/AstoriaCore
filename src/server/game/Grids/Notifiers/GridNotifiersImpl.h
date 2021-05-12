@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -20,13 +19,13 @@
 #define TRINITY_GRIDNOTIFIERSIMPL_H
 
 #include "GridNotifiers.h"
-#include "WorldPacket.h"
 #include "Corpse.h"
-#include "Player.h"
-#include "UpdateData.h"
 #include "CreatureAI.h"
+#include "Player.h"
 #include "SpellAuras.h"
-#include "Opcodes.h"
+#include "UpdateData.h"
+#include "WorldPacket.h"
+#include "WorldSession.h"
 
 template<class T>
 inline void Trinity::VisibleNotifier::Visit(GridRefManager<T> &m)
@@ -156,7 +155,6 @@ void Trinity::WorldObjectSearcher<Check>::Visit(DynamicObjectMapType &m)
         }
     }
 }
-
 
 template<class Check>
 void Trinity::WorldObjectLastSearcher<Check>::Visit(GameObjectMapType &m)

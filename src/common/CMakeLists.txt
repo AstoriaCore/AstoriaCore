@@ -1,4 +1,4 @@
-# Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+# This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
 #
 # This file is free software; as a special exception the author gives
 # unlimited permission to copy and/or distribute it, with or without
@@ -23,17 +23,15 @@ list(APPEND PRIVATE_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/Debugging/Errors.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/Debugging/Errors.h)
 
-if (USE_COREPCH)
+if(USE_COREPCH)
   set(PRIVATE_PCH_HEADER PrecompiledHeaders/commonPCH.h)
-  set(PRIVATE_PCH_SOURCE PrecompiledHeaders/commonPCH.cpp)
-endif (USE_COREPCH)
+endif(USE_COREPCH)
 
 GroupSources(${CMAKE_CURRENT_SOURCE_DIR})
 
 add_definitions(-DTRINITY_API_EXPORT_COMMON)
 
 add_library(common
-  ${PRIVATE_PCH_SOURCE}
   ${PRIVATE_SOURCES}
 )
 
@@ -61,9 +59,12 @@ target_include_directories(common
     ${CMAKE_CURRENT_BINARY_DIR})
 
 target_link_libraries(common
+  PRIVATE
+    trinity-core-interface
   PUBLIC
+    argon2
     boost
-    cppformat
+    fmt
     g3dlib
     Detour
     sfmt
@@ -71,10 +72,14 @@ target_link_libraries(common
     openssl
     valgrind
     threads
-    lualib
-    jemalloc
-  PRIVATE
-    process)
+    jemalloc)
+
+
+if (ELUNA)
+  target_link_libraries(common
+    PUBLIC
+      lualib)
+endif()
 
 add_dependencies(common revision_data.h)
 
@@ -83,12 +88,12 @@ set_target_properties(common
       FOLDER
         "server")
 
-if( BUILD_SHARED_LIBS )
-  if( UNIX )
+if(BUILD_SHARED_LIBS)
+  if(UNIX)
     install(TARGETS common
       LIBRARY
         DESTINATION lib)
-  elseif( WIN32 )
+  elseif(WIN32)
     install(TARGETS common
       RUNTIME
         DESTINATION "${CMAKE_INSTALL_PREFIX}")
@@ -96,6 +101,6 @@ if( BUILD_SHARED_LIBS )
 endif()
 
 # Generate precompiled header
-if (USE_COREPCH)
-  add_cxx_pch(common ${PRIVATE_PCH_HEADER} ${PRIVATE_PCH_SOURCE})
-endif ()
+if(USE_COREPCH)
+  add_cxx_pch(common ${PRIVATE_PCH_HEADER})
+endif()

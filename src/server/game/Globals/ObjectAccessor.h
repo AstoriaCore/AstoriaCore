@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,27 +18,21 @@
 #ifndef TRINITY_OBJECTACCESSOR_H
 #define TRINITY_OBJECTACCESSOR_H
 
-#include <mutex>
-#include <set>
+#include "ObjectGuid.h"
+#include <shared_mutex>
 #include <unordered_map>
-#include <boost/thread/locks.hpp>
-#include <boost/thread/shared_mutex.hpp>
 
-#include "Define.h"
-#include "GridDefines.h"
-#include "UpdateData.h"
-#include "Object.h"
-
-class Creature;
 class Corpse;
-class Unit;
-class GameObject;
+class Creature;
 class DynamicObject;
-class WorldObject;
-class Vehicle;
+class GameObject;
 class Map;
-class WorldRunnable;
+class Object;
+class Pet;
+class Player;
 class Transport;
+class Unit;
+class WorldObject;
 
 template <class T>
 class TC_GAME_API HashMapHolder
@@ -48,9 +41,6 @@ class TC_GAME_API HashMapHolder
     HashMapHolder() { }
 
 public:
-    static_assert(std::is_same<Player, T>::value
-        || std::is_same<Transport, T>::value,
-        "Only Player and Transport can be registered in global HashMapHolder");
 
     typedef std::unordered_map<ObjectGuid, T*> MapType;
 
@@ -62,7 +52,7 @@ public:
 
     static MapType& GetContainer();
 
-    static boost::shared_mutex* GetLock();
+    static std::shared_mutex* GetLock();
 };
 
 namespace ObjectAccessor
@@ -84,11 +74,12 @@ namespace ObjectAccessor
     // these functions return objects if found in whole world
     // ACCESS LIKE THAT IS NOT THREAD SAFE
     TC_GAME_API Player* FindPlayer(ObjectGuid const&);
-    TC_GAME_API Player* FindPlayerByName(std::string const& name);
+    TC_GAME_API Player* FindPlayerByName(std::string_view name);
+    TC_GAME_API Player* FindPlayerByLowGUID(ObjectGuid::LowType lowguid);
 
     // this returns Player even if he is not in world, for example teleporting
     TC_GAME_API Player* FindConnectedPlayer(ObjectGuid const&);
-    TC_GAME_API Player* FindConnectedPlayerByName(std::string const& name);
+    TC_GAME_API Player* FindConnectedPlayerByName(std::string_view name);
 
     // when using this, you must use the hashmapholder's lock
     TC_GAME_API HashMapHolder<Player>::MapType const& GetPlayers();
@@ -115,4 +106,3 @@ namespace ObjectAccessor
 };
 
 #endif
-

@@ -2,6 +2,7 @@
 #include "SpellRegulator.h"
 #include "MobRegulator.h"
 #include "MapRegulator.h"
+#include "Chat.h"
 
 class regulatorcs : public CommandScript
 {
@@ -12,9 +13,9 @@ public:
 	{
 		static std::vector<ChatCommand> SRCommandTable =
 		{
-			{ "reloadsr", SEC_ADMINISTRATOR, true, &HandleReloadSR, "" },
-			{ "reloadmobr", SEC_ADMINISTRATOR, true, &HandleReloadMobR, "" },
-			{ "reloadmapr", SEC_ADMINISTRATOR, true, &HandleReloadMapR, "" }
+			{ "reloadsr", rbac::RBAC_PERM_COMMAND_RELOAD, true, &HandleReloadSR, "" },
+			{ "reloadmobr", rbac::RBAC_PERM_COMMAND_RELOAD, true, &HandleReloadMobR, "" },
+			{ "reloadmapr", rbac::RBAC_PERM_COMMAND_RELOAD, true, &HandleReloadMapR, "" }
 		};
 
 		return SRCommandTable;

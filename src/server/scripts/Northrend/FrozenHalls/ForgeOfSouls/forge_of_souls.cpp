@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,10 +16,12 @@
  */
 
 #include "ScriptMgr.h"
-#include "ScriptedCreature.h"
-#include "ScriptedGossip.h"
 #include "forge_of_souls.h"
 #include "Player.h"
+#include "ScriptedCreature.h"
+#include "ScriptedGossip.h"
+#include "SpellAuras.h"
+#include "SpellScript.h"
 
 enum Events
 {
@@ -69,6 +71,11 @@ enum Phase
     PHASE_INTRO,
 };
 
+enum ForgeSpells
+{
+    SPELL_LETHARGY = 69133
+};
+
 class npc_sylvanas_fos : public CreatureScript
 {
 public:
@@ -99,7 +106,7 @@ public:
             Initialize();
         }
 
-        void sGossipSelect(Player* player, uint32 menuId, uint32 gossipListId) override
+        bool OnGossipSelect(Player* player, uint32 menuId, uint32 gossipListId) override
         {
             if (menuId == MENU_ID_SYLVANAS && gossipListId == GOSSIP_OPTION_ID)
             {
@@ -107,8 +114,9 @@ public:
                 phase = PHASE_INTRO;
                 me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
                 events.Reset();
-                events.ScheduleEvent(EVENT_INTRO_1, 1000);
+                events.ScheduleEvent(EVENT_INTRO_1, 1s);
             }
+            return false;
         }
 
         void UpdateAI(uint32 diff) override
@@ -120,27 +128,27 @@ public:
                 {
                     case EVENT_INTRO_1:
                         Talk(SAY_SYLVANAS_INTRO_1);
-                        events.ScheduleEvent(EVENT_INTRO_2, 11500);
+                        events.ScheduleEvent(EVENT_INTRO_2, 11500ms);
                         break;
 
                     case EVENT_INTRO_2:
                         Talk(SAY_SYLVANAS_INTRO_2);
-                        events.ScheduleEvent(EVENT_INTRO_3, 10500);
+                        events.ScheduleEvent(EVENT_INTRO_3, 10500ms);
                         break;
 
                     case EVENT_INTRO_3:
                         Talk(SAY_SYLVANAS_INTRO_3);
-                        events.ScheduleEvent(EVENT_INTRO_4, 9500);
+                        events.ScheduleEvent(EVENT_INTRO_4, 9500ms);
                         break;
 
                     case EVENT_INTRO_4:
                         Talk(SAY_SYLVANAS_INTRO_4);
-                        events.ScheduleEvent(EVENT_INTRO_5, 10500);
+                        events.ScheduleEvent(EVENT_INTRO_5, 10500ms);
                         break;
 
                     case EVENT_INTRO_5:
                         Talk(SAY_SYLVANAS_INTRO_5);
-                        events.ScheduleEvent(EVENT_INTRO_6, 9500);
+                        events.ScheduleEvent(EVENT_INTRO_6, 9500ms);
                         break;
 
                     case EVENT_INTRO_6:
@@ -162,7 +170,7 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_sylvanas_fosAI>(creature);
+        return GetForgeOfSoulsAI<npc_sylvanas_fosAI>(creature);
     }
 };
 
@@ -196,7 +204,7 @@ public:
             Initialize();
         }
 
-        void sGossipSelect(Player* player, uint32 menuId, uint32 gossipListId) override
+        bool OnGossipSelect(Player* player, uint32 menuId, uint32 gossipListId) override
         {
             if (menuId == MENU_ID_JAINA && gossipListId == GOSSIP_OPTION_ID)
             {
@@ -204,8 +212,9 @@ public:
                 phase = PHASE_INTRO;
                 me->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
                 events.Reset();
-                events.ScheduleEvent(EVENT_INTRO_1, 1000);
+                events.ScheduleEvent(EVENT_INTRO_1, 1s);
             }
+            return false;
         }
 
         void UpdateAI(uint32 diff) override
@@ -217,37 +226,37 @@ public:
                 {
                     case EVENT_INTRO_1:
                         Talk(SAY_JAINA_INTRO_1);
-                        events.ScheduleEvent(EVENT_INTRO_2, 8000);
+                        events.ScheduleEvent(EVENT_INTRO_2, 8s);
                         break;
 
                     case EVENT_INTRO_2:
                         Talk(SAY_JAINA_INTRO_2);
-                        events.ScheduleEvent(EVENT_INTRO_3, 8500);
+                        events.ScheduleEvent(EVENT_INTRO_3, 8500ms);
                         break;
 
                     case EVENT_INTRO_3:
                         Talk(SAY_JAINA_INTRO_3);
-                        events.ScheduleEvent(EVENT_INTRO_4, 8000);
+                        events.ScheduleEvent(EVENT_INTRO_4, 8s);
                         break;
 
                     case EVENT_INTRO_4:
                         Talk(SAY_JAINA_INTRO_4);
-                        events.ScheduleEvent(EVENT_INTRO_5, 10000);
+                        events.ScheduleEvent(EVENT_INTRO_5, 10s);
                         break;
 
                     case EVENT_INTRO_5:
                         Talk(SAY_JAINA_INTRO_5);
-                        events.ScheduleEvent(EVENT_INTRO_6, 8000);
+                        events.ScheduleEvent(EVENT_INTRO_6, 8s);
                         break;
 
                     case EVENT_INTRO_6:
                         Talk(SAY_JAINA_INTRO_6);
-                        events.ScheduleEvent(EVENT_INTRO_7, 12000);
+                        events.ScheduleEvent(EVENT_INTRO_7, 12s);
                         break;
 
                     case EVENT_INTRO_7:
                         Talk(SAY_JAINA_INTRO_7);
-                        events.ScheduleEvent(EVENT_INTRO_8, 8000);
+                        events.ScheduleEvent(EVENT_INTRO_8, 8s);
                         break;
 
                     case EVENT_INTRO_8:
@@ -270,7 +279,32 @@ public:
 
     CreatureAI* GetAI(Creature* creature) const override
     {
-        return GetInstanceAI<npc_jaina_fosAI>(creature);
+        return GetForgeOfSoulsAI<npc_jaina_fosAI>(creature);
+    }
+};
+
+// 69131 - Soul Sickness
+class spell_forge_of_souls_soul_sickness : public AuraScript
+{
+    PrepareAuraScript(spell_forge_of_souls_soul_sickness);
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_LETHARGY });
+    }
+
+    void HandleStun(AuraEffect const* aurEff, AuraEffectHandleModes /*mode*/)
+    {
+        if (GetTargetApplication()->GetRemoveMode() == AURA_REMOVE_BY_EXPIRE)
+        {
+            Unit* target = GetTarget();
+            target->CastSpell(target, SPELL_LETHARGY, aurEff);
+        }
+    }
+
+    void Register() override
+    {
+        AfterEffectRemove += AuraEffectRemoveFn(spell_forge_of_souls_soul_sickness::HandleStun, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -278,4 +312,5 @@ void AddSC_forge_of_souls()
 {
     new npc_sylvanas_fos();
     new npc_jaina_fos();
+    RegisterSpellScript(spell_forge_of_souls_soul_sickness);
 }

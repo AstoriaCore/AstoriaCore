@@ -9,6 +9,17 @@
 
 #include "BindingMap.h"
 
+#ifdef AZEROTHCORE
+#include "BanManager.h"
+enum BanMode
+{
+    BAN_ACCOUNT = 1,
+    BAN_CHARACTER = 2,
+    BAN_IP = 3
+};
+
+#endif
+
 /***
  * These functions can be used anywhere at any time, including at start-up.
  */
@@ -21,7 +32,7 @@ namespace LuaGlobalFunctions
      *
      * @return string engineName
      */
-    int GetLuaEngine(Eluna* /*E*/, lua_State* L)
+    int GetLuaEngine(lua_State* L)
     {
         Eluna::Push(L, "ElunaEngine");
         return 1;
@@ -34,9 +45,27 @@ namespace LuaGlobalFunctions
      *
      * @return string coreName
      */
-    int GetCoreName(Eluna* /*E*/, lua_State* L)
+    int GetCoreName(lua_State* L)
     {
         Eluna::Push(L, CORE_NAME);
+        return 1;
+    }
+
+    /**
+     * Returns emulator .conf RealmID
+     *
+     * - for MaNGOS returns the realmID as it is stored in the core.
+     * - for TrinityCore returns the realmID as it is in the conf file.
+     * @return uint32 realm ID
+     */
+
+    int GetRealmID(lua_State* L)
+    {
+#ifdef MANGOS
+        Eluna::Push(L, realmID);
+#else
+        Eluna::Push(L, sConfigMgr->GetIntDefault("RealmID", 1));
+#endif
         return 1;
     }
 
@@ -49,7 +78,7 @@ namespace LuaGlobalFunctions
      *
      * @return string version
      */
-    int GetCoreVersion(Eluna* /*E*/, lua_State* L)
+    int GetCoreVersion(lua_State* L)
     {
         Eluna::Push(L, CORE_VERSION);
         return 1;
@@ -62,7 +91,7 @@ namespace LuaGlobalFunctions
      *
      * @return int32 expansion
      */
-    int GetCoreExpansion(Eluna* /*E*/, lua_State* L)
+    int GetCoreExpansion(lua_State* L)
     {
 #ifdef CLASSIC
         Eluna::Push(L, 0);
@@ -82,7 +111,7 @@ namespace LuaGlobalFunctions
      * @param uint32 questId : [Quest] entry ID
      * @return [Quest] quest
      */
-    int GetQuest(Eluna* /*E*/, lua_State* L)
+    int GetQuest(lua_State* L)
     {
         uint32 questId = Eluna::CHECKVAL<uint32>(L, 1);
 
@@ -96,7 +125,7 @@ namespace LuaGlobalFunctions
      * @param uint64 guid : guid of the [Player], you can get it with [Object:GetGUID]
      * @return [Player] player
      */
-    int GetPlayerByGUID(Eluna* /*E*/, lua_State* L)
+    int GetPlayerByGUID(lua_State* L)
     {
         uint64 guid = Eluna::CHECKVAL<uint64>(L, 1);
         Eluna::Push(L, eObjectAccessor()FindPlayer(ObjectGuid(guid)));
@@ -109,7 +138,7 @@ namespace LuaGlobalFunctions
      * @param string name : name of the [Player]
      * @return [Player] player
      */
-    int GetPlayerByName(Eluna* /*E*/, lua_State* L)
+    int GetPlayerByName(lua_State* L)
     {
         const char* name = Eluna::CHECKVAL<const char*>(L, 1);
         Eluna::Push(L, eObjectAccessor()FindPlayerByName(name));
@@ -121,14 +150,20 @@ namespace LuaGlobalFunctions
      *
      * @return uint32 time
      */
-    int GetGameTime(Eluna* /*E*/, lua_State* L)
+    int GetGameTime(lua_State* L)
     {
+#ifdef TRINITY
+        Eluna::Push(L, GameTime::GetGameTime());
+#else
         Eluna::Push(L, eWorld->GetGameTime());
+#endif
         return 1;
     }
 
     /**
      * Returns a table with all the current [Player]s in the world
+     *
+     * Does not return players that may be teleporting or otherwise not on any map.
      *
      *     enum TeamId
      *     {
@@ -141,7 +176,7 @@ namespace LuaGlobalFunctions
      * @param bool onlyGM = false : optional check if GM only
      * @return table worldPlayers
      */
-    int GetPlayersInWorld(Eluna* /*E*/, lua_State* L)
+    int GetPlayersInWorld(lua_State* L)
     {
         uint32 team = Eluna::CHECKVAL<uint32>(L, 1, TEAM_NEUTRAL);
         bool onlyGM = Eluna::CHECKVAL<bool>(L, 2, false);
@@ -150,89 +185,47 @@ namespace LuaGlobalFunctions
         int tbl = lua_gettop(L);
         uint32 i = 0;
 
+#if defined(MANGOS)
+        eObjectAccessor()DoForAllPlayers([&](Player* player){
+            if(player->IsInWorld())
+            {
+                if ((team == TEAM_NEUTRAL || player->GetTeamId() == team) && (!onlyGM || player->isGameMaster()))
+                {
+                    Eluna::Push(L, player);
+                    lua_rawseti(L, tbl, ++i);
+                }
+            }
+        });
+#else
         {
 #ifdef TRINITY
-            boost::shared_lock<boost::shared_mutex> lock(*HashMapHolder<Player>::GetLock());
-#else
-#ifdef MANGOS
-            ACE_READ_GUARD_RETURN(HashMapHolder<Player>::LockType, g, HashMapHolder<Player>::GetLock(), 0)
+            std::shared_lock<std::shared_mutex> lock(*HashMapHolder<Player>::GetLock());
+#elif defined(AZEROTHCORE)
+            ACORE_READ_GUARD(HashMapHolder<Player>::LockType, *HashMapHolder<Player>::GetLock());
 #else
             HashMapHolder<Player>::ReadGuard g(HashMapHolder<Player>::GetLock());
-#endif
 #endif
             const HashMapHolder<Player>::MapType& m = eObjectAccessor()GetPlayers();
             for (HashMapHolder<Player>::MapType::const_iterator it = m.begin(); it != m.end(); ++it)
             {
                 if (Player* player = it->second)
                 {
-#ifndef TRINITY
-                    if ((team == TEAM_NEUTRAL || player->GetTeamId() == team) && (!onlyGM || player->isGameMaster()))
-#else
+                    if (!player->IsInWorld())
+                        continue;
+#if defined TRINITY || AZEROTHCORE
                     if ((team == TEAM_NEUTRAL || player->GetTeamId() == team) && (!onlyGM || player->IsGameMaster()))
+#else
+                    if ((team == TEAM_NEUTRAL || player->GetTeamId() == team) && (!onlyGM || player->isGameMaster()))
 #endif
                     {
-                        ++i;
-                        Eluna::Push(L, i);
                         Eluna::Push(L, player);
-                        lua_settable(L, tbl);
+                        lua_rawseti(L, tbl, ++i);
                     }
                 }
             }
         }
-
-        lua_settop(L, tbl); // push table to top of stack
-        return 1;
-    }
-
-    /**
-     * Returns a table with all the current [Player]s in a map
-     *
-     *     enum TeamId
-     *     {
-     *         TEAM_ALLIANCE = 0,
-     *         TEAM_HORDE = 1,
-     *         TEAM_NEUTRAL = 2
-     *     };
-     *
-     * @param uint32 mapId : the [Map] entry ID
-     * @param uint32 instanceId : the instance ID to search in the map
-     * @param [TeamId] team : optional check team of the [Player], Alliance, Horde or Neutral (All)
-     * @return table mapPlayers
-     */
-    int GetPlayersInMap(Eluna* /*E*/, lua_State* L)
-    {
-        uint32 mapID = Eluna::CHECKVAL<uint32>(L, 1);
-        uint32 instanceID = Eluna::CHECKVAL<uint32>(L, 2, 0);
-        uint32 team = Eluna::CHECKVAL<uint32>(L, 3, TEAM_NEUTRAL);
-
-        lua_newtable(L);
-        Map* map = eMapMgr->FindMap(mapID, instanceID);
-        if (!map)
-            return 1;
-
-        int tbl = lua_gettop(L);
-        uint32 i = 0;
-
-        Map::PlayerList const& players = map->GetPlayers();
-        for (Map::PlayerList::const_iterator itr = players.begin(); itr != players.end(); ++itr)
-        {
-#ifndef TRINITY
-            Player* player = itr->getSource();
-#else
-            Player* player = itr->GetSource();
 #endif
-            if (!player)
-                continue;
-            if (player->GetSession() && (team >= TEAM_NEUTRAL || player->GetTeamId() == team))
-            {
-                ++i;
-                Eluna::Push(L, i);
-                Eluna::Push(L, player);
-                lua_settable(L, tbl);
-            }
-        }
-
-        lua_settop(L, tbl);
+        lua_settop(L, tbl); // push table to top of stack
         return 1;
     }
 
@@ -242,7 +235,7 @@ namespace LuaGlobalFunctions
      * @param string name
      * @return [Guild] guild : the Guild, or `nil` if it doesn't exist
      */
-    int GetGuildByName(Eluna* /*E*/, lua_State* L)
+    int GetGuildByName(lua_State* L)
     {
         const char* name = Eluna::CHECKVAL<const char*>(L, 1);
         Eluna::Push(L, eGuildMgr->GetGuildByName(name));
@@ -256,7 +249,7 @@ namespace LuaGlobalFunctions
      * @param uint32 instanceId = 0 : required if the map is an instance, otherwise don't pass anything
      * @return [Map] map : the Map, or `nil` if it doesn't exist
      */
-    int GetMapById(Eluna* /*E*/, lua_State* L)
+    int GetMapById(lua_State* L)
     {
         uint32 mapid = Eluna::CHECKVAL<uint32>(L, 1);
         uint32 instance = Eluna::CHECKVAL<uint32>(L, 2, 0);
@@ -271,7 +264,7 @@ namespace LuaGlobalFunctions
      * @param uint64 guid : the guid of a [Guild] leader
      * @return [Guild] guild, or `nil` if it doesn't exist
      */
-    int GetGuildByLeaderGUID(Eluna* /*E*/, lua_State* L)
+    int GetGuildByLeaderGUID(lua_State* L)
     {
         uint64 guid = Eluna::CHECKVAL<uint64>(L, 1);
 
@@ -284,7 +277,7 @@ namespace LuaGlobalFunctions
      *
      * @return uint32 count
      */
-    int GetPlayerCount(Eluna* /*E*/, lua_State* L)
+    int GetPlayerCount(lua_State* L)
     {
         Eluna::Push(L, eWorld->GetActiveSessionCount());
         return 1;
@@ -300,7 +293,7 @@ namespace LuaGlobalFunctions
      * @param uint32 lowguid : low GUID of the [Player]
      * @return uint64 guid
      */
-    int GetPlayerGUID(Eluna* /*E*/, lua_State* L)
+    int GetPlayerGUID(lua_State* L)
     {
         uint32 lowguid = Eluna::CHECKVAL<uint32>(L, 1);
         Eluna::Push(L, MAKE_NEW_GUID(lowguid, 0, HIGHGUID_PLAYER));
@@ -316,7 +309,7 @@ namespace LuaGlobalFunctions
      * @param uint32 lowguid : low GUID of the [Item]
      * @return uint64 guid
      */
-    int GetItemGUID(Eluna* /*E*/, lua_State* L)
+    int GetItemGUID(lua_State* L)
     {
         uint32 lowguid = Eluna::CHECKVAL<uint32>(L, 1);
         Eluna::Push(L, MAKE_NEW_GUID(lowguid, 0, HIGHGUID_ITEM));
@@ -334,7 +327,7 @@ namespace LuaGlobalFunctions
      * @param uint32 entry : entry ID of the [GameObject]
      * @return uint64 guid
      */
-    int GetObjectGUID(Eluna* /*E*/, lua_State* L)
+    int GetObjectGUID(lua_State* L)
     {
         uint32 lowguid = Eluna::CHECKVAL<uint32>(L, 1);
         uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
@@ -353,7 +346,7 @@ namespace LuaGlobalFunctions
      * @param uint32 entry : entry ID of the [Creature]
      * @return uint64 guid
      */
-    int GetUnitGUID(Eluna* /*E*/, lua_State* L)
+    int GetUnitGUID(lua_State* L)
     {
         uint32 lowguid = Eluna::CHECKVAL<uint32>(L, 1);
         uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
@@ -380,7 +373,7 @@ namespace LuaGlobalFunctions
      * @param uint64 guid : GUID of an [Object]
      * @return uint32 lowguid : low GUID of the [Object]
      */
-    int GetGUIDLow(Eluna* /*E*/, lua_State* L)
+    int GetGUIDLow(lua_State* L)
     {
         uint64 guid = Eluna::CHECKVAL<uint64>(L, 1);
 
@@ -408,7 +401,7 @@ namespace LuaGlobalFunctions
      * @param [LocaleConstant] locale = DEFAULT_LOCALE : locale to return the [Item] name in
      * @return string itemLink
      */
-    int GetItemLink(Eluna* /*E*/, lua_State* L)
+    int GetItemLink(lua_State* L)
     {
         uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
         uint8 locale = Eluna::CHECKVAL<uint8>(L, 2, DEFAULT_LOCALE);
@@ -421,7 +414,7 @@ namespace LuaGlobalFunctions
 
         std::string name = temp->Name1;
         if (ItemLocale const* il = eObjectMgr->GetItemLocale(entry))
-            ObjectMgr::GetLocaleString(il->Name, locale, name);
+            ObjectMgr::GetLocaleString(il->Name, static_cast<LocaleConstant>(locale), name);
 
         std::ostringstream oss;
         oss << "|c" << std::hex << ItemQualityColors[temp->Quality] << std::dec <<
@@ -445,7 +438,7 @@ namespace LuaGlobalFunctions
      * @param uint64 guid : GUID of an [Object]
      * @return int32 typeId : type ID of the [Object]
      */
-    int GetGUIDType(Eluna* /*E*/, lua_State* L)
+    int GetGUIDType(lua_State* L)
     {
         uint64 guid = Eluna::CHECKVAL<uint64>(L, 1);
         Eluna::Push(L, static_cast<int>(GUID_HIPART(guid)));
@@ -460,7 +453,7 @@ namespace LuaGlobalFunctions
      * @param uint64 guid : GUID of an [Creature] or [GameObject]
      * @return uint32 entry : entry ID, or `0` if `guid` is not a [Creature] or [GameObject]
      */
-    int GetGUIDEntry(Eluna* /*E*/, lua_State* L)
+    int GetGUIDEntry(lua_State* L)
     {
         uint64 guid = Eluna::CHECKVAL<uint64>(L, 1);
         Eluna::Push(L, GUID_ENPART(guid));
@@ -487,14 +480,14 @@ namespace LuaGlobalFunctions
      * @param [LocaleConstant] locale = DEFAULT_LOCALE : locale to return the name in
      * @return string areaOrZoneName
      */
-    int GetAreaName(Eluna* /*E*/, lua_State* L)
+    int GetAreaName(lua_State* L)
     {
         uint32 areaOrZoneId = Eluna::CHECKVAL<uint32>(L, 1);
         uint8 locale = Eluna::CHECKVAL<uint8>(L, 2, DEFAULT_LOCALE);
         if (locale >= TOTAL_LOCALES)
             return luaL_argerror(L, 2, "valid LocaleConstant expected");
 
-#ifdef TRINITY
+#if defined TRINITY || AZEROTHCORE
         AreaTableEntry const* areaEntry = sAreaTableStore.LookupEntry(areaOrZoneId);
 #else
         AreaTableEntry const* areaEntry = GetAreaEntryByAreaID(areaOrZoneId);
@@ -502,11 +495,39 @@ namespace LuaGlobalFunctions
         if (!areaEntry)
             return luaL_argerror(L, 1, "valid Area or Zone ID expected");
 
+#if defined(TRINITY)
+        Eluna::Push(L, areaEntry->AreaName[locale]);
+#else
         Eluna::Push(L, areaEntry->area_name[locale]);
+#endif
         return 1;
     }
 
-    static int RegisterEntryHelper(Eluna* E, lua_State* L, int regtype)
+    /**
+     * Returns the currently active game events.
+     *
+     * @return table activeEvents
+     */
+    int GetActiveGameEvents(lua_State* L)
+    {
+        lua_newtable(L);
+        int tbl = lua_gettop(L);
+        uint32 counter = 1;
+        GameEventMgr::ActiveEvents const& activeEvents = eGameEventMgr->GetActiveEventList();
+
+        for (GameEventMgr::ActiveEvents::const_iterator i = activeEvents.begin(); i != activeEvents.end(); ++i)
+        {
+            Eluna::Push(L, *i);
+            lua_rawseti(L, tbl, counter);
+
+            counter++;
+        }
+
+        lua_settop(L, tbl);
+        return 1;
+    }
+
+    static int RegisterEntryHelper(lua_State* L, int regtype)
     {
         uint32 id = Eluna::CHECKVAL<uint32>(L, 1);
         uint32 ev = Eluna::CHECKVAL<uint32>(L, 2);
@@ -516,13 +537,13 @@ namespace LuaGlobalFunctions
         lua_pushvalue(L, 3);
         int functionRef = luaL_ref(L, LUA_REGISTRYINDEX);
         if (functionRef >= 0)
-            return E->Register(L, regtype, id, 0, 0, ev, functionRef, shots);
+            return Eluna::GetEluna(L)->Register(L, regtype, id, 0, 0, ev, functionRef, shots);
         else
             luaL_argerror(L, 3, "unable to make a ref to function");
         return 0;
     }
 
-    static int RegisterEventHelper(Eluna* E, lua_State* L, int regtype)
+    static int RegisterEventHelper(lua_State* L, int regtype)
     {
         uint32 ev = Eluna::CHECKVAL<uint32>(L, 1);
         luaL_checktype(L, 2, LUA_TFUNCTION);
@@ -531,13 +552,13 @@ namespace LuaGlobalFunctions
         lua_pushvalue(L, 2);
         int functionRef = luaL_ref(L, LUA_REGISTRYINDEX);
         if (functionRef >= 0)
-            return E->Register(L, regtype, 0, 0, 0, ev, functionRef, shots);
+            return Eluna::GetEluna(L)->Register(L, regtype, 0, 0, 0, ev, functionRef, shots);
         else
             luaL_argerror(L, 2, "unable to make a ref to function");
         return 0;
     }
 
-    static int RegisterUniqueHelper(Eluna* E, lua_State* L, int regtype)
+    static int RegisterUniqueHelper(lua_State* L, int regtype)
     {
         uint64 guid = Eluna::CHECKVAL<uint64>(L, 1);
         uint32 instanceId = Eluna::CHECKVAL<uint32>(L, 2);
@@ -548,7 +569,7 @@ namespace LuaGlobalFunctions
         lua_pushvalue(L, 4);
         int functionRef = luaL_ref(L, LUA_REGISTRYINDEX);
         if (functionRef >= 0)
-            return E->Register(L, regtype, 0, guid, instanceId, ev, functionRef, shots);
+            return Eluna::GetEluna(L)->Register(L, regtype, 0, guid, instanceId, ev, functionRef, shots);
         else
             luaL_argerror(L, 4, "unable to make a ref to function");
         return 0;
@@ -564,9 +585,9 @@ namespace LuaGlobalFunctions
      *         SERVER_EVENT_ON_NETWORK_STOP            =     2,       // Not Implemented
      *         SERVER_EVENT_ON_SOCKET_OPEN             =     3,       // Not Implemented
      *         SERVER_EVENT_ON_SOCKET_CLOSE            =     4,       // Not Implemented
-     *         SERVER_EVENT_ON_PACKET_RECEIVE          =     5,       // (event, packet, player) - Player only if accessible. Can return false or a new packet
+     *         SERVER_EVENT_ON_PACKET_RECEIVE          =     5,       // (event, packet, player) - Player only if accessible. Can return false, newPacket
      *         SERVER_EVENT_ON_PACKET_RECEIVE_UNKNOWN  =     6,       // Not Implemented
-     *         SERVER_EVENT_ON_PACKET_SEND             =     7,       // (event, packet, player) - Player only if accessible. Can return false or a new packet
+     *         SERVER_EVENT_ON_PACKET_SEND             =     7,       // (event, packet, player) - Player only if accessible. Can return false, newPacket
      *
      *         // World
      *         WORLD_EVENT_ON_OPEN_STATE_CHANGE        =     8,        // (event, open) - Needs core support on Mangos
@@ -580,7 +601,6 @@ namespace LuaGlobalFunctions
      *
      *         // Eluna
      *         ELUNA_EVENT_ON_LUA_STATE_CLOSE          =     16,       // (event) - triggers just before shutting down eluna (on shutdown and restart)
-     *         ELUNA_EVENT_ON_LUA_STATE_OPEN           =     33,       // (event) - triggers after all scripts are loaded
      *
      *         // Map
      *         MAP_EVENT_ON_CREATE                     =     17,       // (event, map)
@@ -592,24 +612,28 @@ namespace LuaGlobalFunctions
      *         MAP_EVENT_ON_UPDATE                     =     23,       // (event, map, diff)
      *
      *         // Area trigger
-     *         TRIGGER_EVENT_ON_TRIGGER                =     24,       // (event, player, triggerId)
+     *         TRIGGER_EVENT_ON_TRIGGER                =     24,       // (event, player, triggerId) - Can return true
      *
      *         // Weather
-     *         WEATHER_EVENT_ON_CHANGE                 =     25,       // (event, weather, state, grade)
+     *         WEATHER_EVENT_ON_CHANGE                 =     25,       // (event, zoneId, state, grade)
      *
      *         // Auction house
-     *         AUCTION_EVENT_ON_ADD                    =     26,       // (event, AHObject)
-     *         AUCTION_EVENT_ON_REMOVE                 =     27,       // (event, AHObject)
-     *         AUCTION_EVENT_ON_SUCCESSFUL             =     28,       // (event, AHObject) // Not Implemented
-     *         AUCTION_EVENT_ON_EXPIRE                 =     29,       // (event, AHObject) // Not Implemented
+     *         AUCTION_EVENT_ON_ADD                    =     26,       // (event, auctionId, owner, item, expireTime, buyout, startBid, currentBid, bidderGUIDLow)
+     *         AUCTION_EVENT_ON_REMOVE                 =     27,       // (event, auctionId, owner, item, expireTime, buyout, startBid, currentBid, bidderGUIDLow)
+     *         AUCTION_EVENT_ON_SUCCESSFUL             =     28,       // (event, auctionId, owner, item, expireTime, buyout, startBid, currentBid, bidderGUIDLow)
+     *         AUCTION_EVENT_ON_EXPIRE                 =     29,       // (event, auctionId, owner, item, expireTime, buyout, startBid, currentBid, bidderGUIDLow)
      *
      *         // AddOns
-     *         ADDON_EVENT_ON_MESSAGE                  =     30,       // (event, sender, type, prefix, msg, target) - target can be nil/whisper_target/guild/group/channel
+     *         ADDON_EVENT_ON_MESSAGE                  =     30,       // (event, sender, type, prefix, msg, target) - target can be nil/whisper_target/guild/group/channel. Can return false
      *
      *         WORLD_EVENT_ON_DELETE_CREATURE          =     31,       // (event, creature)
      *         WORLD_EVENT_ON_DELETE_GAMEOBJECT        =     32,       // (event, gameobject)
      *
-     *         SERVER_EVENT_COUNT
+     *         // Eluna
+     *         ELUNA_EVENT_ON_LUA_STATE_OPEN           =     33,       // (event) - triggers after all scripts are loaded
+     *
+     *         GAME_EVENT_START                        =     34,       // (event, gameeventid)
+     *         GAME_EVENT_STOP                         =     35,       // (event, gameeventid)
      *     };
      *
      * @proto cancel = (event, function)
@@ -621,9 +645,9 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterServerEvent(Eluna* E, lua_State* L)
+    int RegisterServerEvent(lua_State* L)
     {
-        return RegisterEventHelper(E, L, Hooks::REGTYPE_SERVER);
+        return RegisterEventHelper(L, Hooks::REGTYPE_SERVER);
     }
 
     /**
@@ -645,15 +669,15 @@ namespace LuaGlobalFunctions
      *     PLAYER_EVENT_ON_DUEL_END                =     11,       // (event, winner, loser, type)
      *     PLAYER_EVENT_ON_GIVE_XP                 =     12,       // (event, player, amount, victim) - Can return new XP amount
      *     PLAYER_EVENT_ON_LEVEL_CHANGE            =     13,       // (event, player, oldLevel)
-     *     PLAYER_EVENT_ON_MONEY_CHANGE            =     14,       // (event, player, amount)
+     *     PLAYER_EVENT_ON_MONEY_CHANGE            =     14,       // (event, player, amount) - Can return new money amount
      *     PLAYER_EVENT_ON_REPUTATION_CHANGE       =     15,       // (event, player, factionId, standing, incremental) - Can return new standing
      *     PLAYER_EVENT_ON_TALENTS_CHANGE          =     16,       // (event, player, points)
      *     PLAYER_EVENT_ON_TALENTS_RESET           =     17,       // (event, player, noCost)
-     *     PLAYER_EVENT_ON_CHAT                    =     18,       // (event, player, msg, Type, lang) - Can return false or new msg
-     *     PLAYER_EVENT_ON_WHISPER                 =     19,       // (event, player, msg, Type, lang, receiver) - Can return false or new msg
-     *     PLAYER_EVENT_ON_GROUP_CHAT              =     20,       // (event, player, msg, Type, lang, group) - Can return false or new msg
-     *     PLAYER_EVENT_ON_GUILD_CHAT              =     21,       // (event, player, msg, Type, lang, guild) - Can return false or new msg
-     *     PLAYER_EVENT_ON_CHANNEL_CHAT            =     22,       // (event, player, msg, Type, lang, channel) - Can return false or new msg
+     *     PLAYER_EVENT_ON_CHAT                    =     18,       // (event, player, msg, Type, lang) - Can return false, newMessage
+     *     PLAYER_EVENT_ON_WHISPER                 =     19,       // (event, player, msg, Type, lang, receiver) - Can return false, newMessage
+     *     PLAYER_EVENT_ON_GROUP_CHAT              =     20,       // (event, player, msg, Type, lang, group) - Can return false, newMessage
+     *     PLAYER_EVENT_ON_GUILD_CHAT              =     21,       // (event, player, msg, Type, lang, guild) - Can return false, newMessage
+     *     PLAYER_EVENT_ON_CHANNEL_CHAT            =     22,       // (event, player, msg, Type, lang, channel) - Can return false, newMessage
      *     PLAYER_EVENT_ON_EMOTE                   =     23,       // (event, player, emote) - Not triggered on any known emote
      *     PLAYER_EVENT_ON_TEXT_EMOTE              =     24,       // (event, player, textEmote, emoteNum, guid)
      *     PLAYER_EVENT_ON_SAVE                    =     25,       // (event, player)
@@ -664,7 +688,7 @@ namespace LuaGlobalFunctions
      *     // Custom
      *     PLAYER_EVENT_ON_EQUIP                   =     29,       // (event, player, item, bag, slot)
      *     PLAYER_EVENT_ON_FIRST_LOGIN             =     30,       // (event, player)
-     *     PLAYER_EVENT_ON_CAN_USE_ITEM            =     31,       // (event, player, itemEntry)
+     *     PLAYER_EVENT_ON_CAN_USE_ITEM            =     31,       // (event, player, itemEntry) - Can return InventoryResult enum value
      *     PLAYER_EVENT_ON_LOOT_ITEM               =     32,       // (event, player, item, count)
      *     PLAYER_EVENT_ON_ENTER_COMBAT            =     33,       // (event, player, enemy)
      *     PLAYER_EVENT_ON_LEAVE_COMBAT            =     34,       // (event, player)
@@ -672,12 +696,10 @@ namespace LuaGlobalFunctions
      *     PLAYER_EVENT_ON_RESURRECT               =     36,       // (event, player)
      *     PLAYER_EVENT_ON_LOOT_MONEY              =     37,       // (event, player, amount)
      *     PLAYER_EVENT_ON_QUEST_ABANDON           =     38,       // (event, player, questId)
-     *     // UNUSED                               =     39,       // (event, player)
+     *     PLAYER_EVENT_ON_LEARN_TALENTS           =     39,       // (event, player, talentId, talentRank, spellid)
      *     // UNUSED                               =     40,       // (event, player)
      *     // UNUSED                               =     41,       // (event, player)
      *     PLAYER_EVENT_ON_COMMAND                 =     42,       // (event, player, command) - player is nil if command used from console. Can return false
-     *
-     *     PLAYER_EVENT_COUNT
      * };
      * </pre>
      *
@@ -690,9 +712,9 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterPlayerEvent(Eluna* E, lua_State* L)
+    int RegisterPlayerEvent(lua_State* L)
     {
-        return RegisterEventHelper(E, L, Hooks::REGTYPE_PLAYER);
+        return RegisterEventHelper(L, Hooks::REGTYPE_PLAYER);
     }
 
     /**
@@ -703,13 +725,13 @@ namespace LuaGlobalFunctions
      * {
      *     // Guild
      *     GUILD_EVENT_ON_ADD_MEMBER               =     1,       // (event, guild, player, rank)
-     *     GUILD_EVENT_ON_REMOVE_MEMBER            =     2,       // (event, guild, isDisbanding)
+     *     GUILD_EVENT_ON_REMOVE_MEMBER            =     2,       // (event, guild, player, isDisbanding)
      *     GUILD_EVENT_ON_MOTD_CHANGE              =     3,       // (event, guild, newMotd)
      *     GUILD_EVENT_ON_INFO_CHANGE              =     4,       // (event, guild, newInfo)
      *     GUILD_EVENT_ON_CREATE                   =     5,       // (event, guild, leader, name)  // Not on TC
      *     GUILD_EVENT_ON_DISBAND                  =     6,       // (event, guild)
-     *     GUILD_EVENT_ON_MONEY_WITHDRAW           =     7,       // (event, guild, player, amount, isRepair)
-     *     GUILD_EVENT_ON_MONEY_DEPOSIT            =     8,       // (event, guild, player, amount)
+     *     GUILD_EVENT_ON_MONEY_WITHDRAW           =     7,       // (event, guild, player, amount, isRepair) - Can return new money amount
+     *     GUILD_EVENT_ON_MONEY_DEPOSIT            =     8,       // (event, guild, player, amount) - Can return new money amount
      *     GUILD_EVENT_ON_ITEM_MOVE                =     9,       // (event, guild, player, item, isSrcBank, srcContainer, srcSlotId, isDestBank, destContainer, destSlotId)   // TODO
      *     GUILD_EVENT_ON_EVENT                    =     10,      // (event, guild, eventType, plrGUIDLow1, plrGUIDLow2, newRank)  // TODO
      *     GUILD_EVENT_ON_BANK_EVENT               =     11,      // (event, guild, eventType, tabId, playerGUIDLow, itemOrMoney, itemStackCount, destTabId)
@@ -727,9 +749,9 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterGuildEvent(Eluna* E, lua_State* L)
+    int RegisterGuildEvent(lua_State* L)
     {
-        return RegisterEventHelper(E, L, Hooks::REGTYPE_GUILD);
+        return RegisterEventHelper(L, Hooks::REGTYPE_GUILD);
     }
 
     /**
@@ -759,9 +781,9 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterGroupEvent(Eluna* E, lua_State* L)
+    int RegisterGroupEvent(lua_State* L)
     {
-        return RegisterEventHelper(E, L, Hooks::REGTYPE_GROUP);
+        return RegisterEventHelper(L, Hooks::REGTYPE_GROUP);
     }
 
     /**
@@ -787,9 +809,9 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterBGEvent(Eluna* E, lua_State* L)
+    int RegisterBGEvent(lua_State* L)
     {
-        return RegisterEventHelper(E, L, Hooks::REGTYPE_BG);
+        return RegisterEventHelper(L, Hooks::REGTYPE_BG);
     }
 
     /**
@@ -798,9 +820,9 @@ namespace LuaGlobalFunctions
      * <pre>
      * enum PacketEvents
      * {
-     *     PACKET_EVENT_ON_PACKET_RECEIVE          =     5,
-     *     PACKET_EVENT_ON_PACKET_RECEIVE_UNKNOWN  =     6,
-     *     PACKET_EVENT_ON_PACKET_SEND             =     7,
+     *     PACKET_EVENT_ON_PACKET_RECEIVE          =     5,       // (event, packet, player) - Player only if accessible. Can return false, newPacket
+     *     PACKET_EVENT_ON_PACKET_RECEIVE_UNKNOWN  =     6,       // Not Implemented
+     *     PACKET_EVENT_ON_PACKET_SEND             =     7,       // (event, packet, player) - Player only if accessible. Can return false, newPacket
      *
      *     PACKET_EVENT_COUNT
      * };
@@ -816,9 +838,9 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterPacketEvent(Eluna* E, lua_State* L)
+    int RegisterPacketEvent(lua_State* L)
     {
-        return RegisterEntryHelper(E, L, Hooks::REGTYPE_PACKET);
+        return RegisterEntryHelper(L, Hooks::REGTYPE_PACKET);
     }
 
     /**
@@ -827,8 +849,8 @@ namespace LuaGlobalFunctions
      * <pre>
      * enum GossipEvents
      * {
-     *     GOSSIP_EVENT_ON_HELLO                           = 1,    // (event, player, object) - Object is the Creature/GameObject/Item. For item gossip can return false to stop spell *casting.
-     *     GOSSIP_EVENT_ON_SELECT                          = 2,    // (event, player, object, sender, intid, code, menu_id) - Object is the Creature/GameObject/Item/Player, menu_id is *only for player gossip
+     *     GOSSIP_EVENT_ON_HELLO                           = 1,    // (event, player, object) - Object is the Creature/GameObject/Item. Can return false to do default action. For item gossip can return false to stop spell casting.
+     *     GOSSIP_EVENT_ON_SELECT                          = 2,    // (event, player, object, sender, intid, code, menu_id) - Object is the Creature/GameObject/Item/Player, menu_id is only for player gossip. Can return false to do default action.
      *     GOSSIP_EVENT_COUNT
      * };
      * </pre>
@@ -843,9 +865,9 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterCreatureGossipEvent(Eluna* E, lua_State* L)
+    int RegisterCreatureGossipEvent(lua_State* L)
     {
-        return RegisterEntryHelper(E, L, Hooks::REGTYPE_CREATURE_GOSSIP);
+        return RegisterEntryHelper(L, Hooks::REGTYPE_CREATURE_GOSSIP);
     }
 
     /**
@@ -854,8 +876,8 @@ namespace LuaGlobalFunctions
      * <pre>
      * enum GossipEvents
      * {
-     *     GOSSIP_EVENT_ON_HELLO                           = 1,    // (event, player, object) - Object is the Creature/GameObject/Item. For item gossip can return false to stop spell *casting.
-     *     GOSSIP_EVENT_ON_SELECT                          = 2,    // (event, player, object, sender, intid, code, menu_id) - Object is the Creature/GameObject/Item/Player, menu_id is *only for player gossip
+     *     GOSSIP_EVENT_ON_HELLO                           = 1,    // (event, player, object) - Object is the Creature/GameObject/Item. Can return false to do default action. For item gossip can return false to stop spell casting.
+     *     GOSSIP_EVENT_ON_SELECT                          = 2,    // (event, player, object, sender, intid, code, menu_id) - Object is the Creature/GameObject/Item/Player, menu_id is only for player gossip. Can return false to do default action.
      *     GOSSIP_EVENT_COUNT
      * };
      * </pre>
@@ -870,9 +892,9 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterGameObjectGossipEvent(Eluna* E, lua_State* L)
+    int RegisterGameObjectGossipEvent(lua_State* L)
     {
-        return RegisterEntryHelper(E, L, Hooks::REGTYPE_GAMEOBJECT_GOSSIP);
+        return RegisterEntryHelper(L, Hooks::REGTYPE_GAMEOBJECT_GOSSIP);
     }
 
     /**
@@ -883,9 +905,9 @@ namespace LuaGlobalFunctions
      * {
      *     ITEM_EVENT_ON_DUMMY_EFFECT                      = 1,    // (event, caster, spellid, effindex, item)
      *     ITEM_EVENT_ON_USE                               = 2,    // (event, player, item, target) - Can return false to stop the spell casting
-     *     ITEM_EVENT_ON_QUEST_ACCEPT                      = 3,    // (event, player, item, quest)
-     *     ITEM_EVENT_ON_EXPIRE                            = 4,    // (event, player, itemid)
-     *     ITEM_EVENT_ON_REMOVE                            = 5,    // (event, player, item)
+     *     ITEM_EVENT_ON_QUEST_ACCEPT                      = 3,    // (event, player, item, quest) - Can return true
+     *     ITEM_EVENT_ON_EXPIRE                            = 4,    // (event, player, itemid) - Can return true
+     *     ITEM_EVENT_ON_REMOVE                            = 5,    // (event, player, item) - Can return true
      *     ITEM_EVENT_COUNT
      * };
      * </pre>
@@ -900,9 +922,9 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterItemEvent(Eluna* E, lua_State* L)
+    int RegisterItemEvent(lua_State* L)
     {
-        return RegisterEntryHelper(E, L, Hooks::REGTYPE_ITEM);
+        return RegisterEntryHelper(L, Hooks::REGTYPE_ITEM);
     }
 
     /**
@@ -911,8 +933,8 @@ namespace LuaGlobalFunctions
      * <pre>
      * enum GossipEvents
      * {
-     *     GOSSIP_EVENT_ON_HELLO                           = 1,    // (event, player, object) - Object is the Creature/GameObject/Item. For item gossip can return false to stop spell *casting.
-     *     GOSSIP_EVENT_ON_SELECT                          = 2,    // (event, player, object, sender, intid, code, menu_id) - Object is the Creature/GameObject/Item/Player, menu_id is *only for player gossip
+     *     GOSSIP_EVENT_ON_HELLO                           = 1,    // (event, player, object) - Object is the Creature/GameObject/Item. Can return false to do default action. For item gossip can return false to stop spell casting.
+     *     GOSSIP_EVENT_ON_SELECT                          = 2,    // (event, player, object, sender, intid, code, menu_id) - Object is the Creature/GameObject/Item/Player, menu_id is only for player gossip. Can return false to do default action.
      *     GOSSIP_EVENT_COUNT
      * };
      * </pre>
@@ -927,9 +949,9 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterItemGossipEvent(Eluna* E, lua_State* L)
+    int RegisterItemGossipEvent(lua_State* L)
     {
-        return RegisterEntryHelper(E, L, Hooks::REGTYPE_ITEM_GOSSIP);
+        return RegisterEntryHelper(L, Hooks::REGTYPE_ITEM_GOSSIP);
     }
 
     /**
@@ -954,9 +976,9 @@ namespace LuaGlobalFunctions
      * @param function function : function to register
      * @param uint32 shots = 0 : the number of times the function will be called, 0 means "always call this function"
      */
-    int RegisterMapEvent(Eluna* E, lua_State* L)
+    int RegisterMapEvent(lua_State* L)
     {
-        return RegisterEntryHelper(E, L, Hooks::REGTYPE_MAP);
+        return RegisterEntryHelper(L, Hooks::REGTYPE_MAP);
     }
 
     /**
@@ -981,9 +1003,9 @@ namespace LuaGlobalFunctions
      * @param function function : function to register
      * @param uint32 shots = 0 : the number of times the function will be called, 0 means "always call this function"
      */
-    int RegisterInstanceEvent(Eluna* E, lua_State* L)
+    int RegisterInstanceEvent(lua_State* L)
     {
-        return RegisterEntryHelper(E, L, Hooks::REGTYPE_INSTANCE);
+        return RegisterEntryHelper(L, Hooks::REGTYPE_INSTANCE);
     }
 
     /**
@@ -994,8 +1016,8 @@ namespace LuaGlobalFunctions
      * <pre>
      * enum GossipEvents
      * {
-     *     GOSSIP_EVENT_ON_HELLO                           = 1,    // (event, player, object) - Object is the Creature/GameObject/Item. For item gossip can return false to stop spell *casting.
-     *     GOSSIP_EVENT_ON_SELECT                          = 2,    // (event, player, object, sender, intid, code, menu_id) - Object is the Creature/GameObject/Item/Player, menu_id is *only for player gossip
+     *     GOSSIP_EVENT_ON_HELLO                           = 1,    // (event, player, object) - Object is the Creature/GameObject/Item. Can return false to do default action. For item gossip can return false to stop spell casting.
+     *     GOSSIP_EVENT_ON_SELECT                          = 2,    // (event, player, object, sender, intid, code, menu_id) - Object is the Creature/GameObject/Item/Player, menu_id is only for player gossip. Can return false to do default action.
      *     GOSSIP_EVENT_COUNT
      * };
      * </pre>
@@ -1010,9 +1032,9 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterPlayerGossipEvent(Eluna* E, lua_State* L)
+    int RegisterPlayerGossipEvent(lua_State* L)
     {
-        return RegisterEntryHelper(E, L, Hooks::REGTYPE_PLAYER_GOSSIP);
+        return RegisterEntryHelper(L, Hooks::REGTYPE_PLAYER_GOSSIP);
     }
 
     /**
@@ -1021,40 +1043,40 @@ namespace LuaGlobalFunctions
      * <pre>
      * enum CreatureEvents
      * {
-     *     CREATURE_EVENT_ON_ENTER_COMBAT                    = 1,  // (event, creature, target)
-     *     CREATURE_EVENT_ON_LEAVE_COMBAT                    = 2,  // (event, creature)
-     *     CREATURE_EVENT_ON_TARGET_DIED                     = 3,  // (event, creature, victim)
-     *     CREATURE_EVENT_ON_DIED                            = 4,  // (event, creature, killer)
-     *     CREATURE_EVENT_ON_SPAWN                           = 5,  // (event, creature)
-     *     CREATURE_EVENT_ON_REACH_WP                        = 6,  // (event, creature, type, id)
-     *     CREATURE_EVENT_ON_AIUPDATE                        = 7,  // (event, creature, diff)
-     *     CREATURE_EVENT_ON_RECEIVE_EMOTE                   = 8,  // (event, creature, player, emoteid)
-     *     CREATURE_EVENT_ON_DAMAGE_TAKEN                    = 9,  // (event, creature, attacker, damage) - Can return new damage
-     *     CREATURE_EVENT_ON_PRE_COMBAT                      = 10, // (event, creature, target)
-     *     CREATURE_EVENT_ON_ATTACKED_AT                     = 11, // (event, creature, attacker)
-     *     CREATURE_EVENT_ON_OWNER_ATTACKED                  = 12, // (event, creature, target)    // Not on mangos
-     *     CREATURE_EVENT_ON_OWNER_ATTACKED_AT               = 13, // (event, creature, attacker)  // Not on mangos
-     *     CREATURE_EVENT_ON_HIT_BY_SPELL                    = 14, // (event, creature, caster, spellid)
-     *     CREATURE_EVENT_ON_SPELL_HIT_TARGET                = 15, // (event, creature, target, spellid)
+     *     CREATURE_EVENT_ON_ENTER_COMBAT                    = 1,  // (event, creature, target) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_LEAVE_COMBAT                    = 2,  // (event, creature) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_TARGET_DIED                     = 3,  // (event, creature, victim) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_DIED                            = 4,  // (event, creature, killer) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_SPAWN                           = 5,  // (event, creature) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_REACH_WP                        = 6,  // (event, creature, type, id) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_AIUPDATE                        = 7,  // (event, creature, diff) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_RECEIVE_EMOTE                   = 8,  // (event, creature, player, emoteid) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_DAMAGE_TAKEN                    = 9,  // (event, creature, attacker, damage) - Can return true to stop normal action, can return new damage as second return value.
+     *     CREATURE_EVENT_ON_PRE_COMBAT                      = 10, // (event, creature, target) - Can return true to stop normal action
+     *     // UNUSED
+     *     CREATURE_EVENT_ON_OWNER_ATTACKED                  = 12, // (event, creature, target) - Can return true to stop normal action            // Not on mangos
+     *     CREATURE_EVENT_ON_OWNER_ATTACKED_AT               = 13, // (event, creature, attacker) - Can return true to stop normal action          // Not on mangos
+     *     CREATURE_EVENT_ON_HIT_BY_SPELL                    = 14, // (event, creature, caster, spellid) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_SPELL_HIT_TARGET                = 15, // (event, creature, target, spellid) - Can return true to stop normal action
      *     // UNUSED                                         = 16, // (event, creature)
      *     // UNUSED                                         = 17, // (event, creature)
      *     // UNUSED                                         = 18, // (event, creature)
-     *     CREATURE_EVENT_ON_JUST_SUMMONED_CREATURE          = 19, // (event, creature, summon)
-     *     CREATURE_EVENT_ON_SUMMONED_CREATURE_DESPAWN       = 20, // (event, creature, summon)
-     *     CREATURE_EVENT_ON_SUMMONED_CREATURE_DIED          = 21, // (event, creature, summon, killer)    // Not on mangos
-     *     CREATURE_EVENT_ON_SUMMONED                        = 22, // (event, creature, summoner)
+     *     CREATURE_EVENT_ON_JUST_SUMMONED_CREATURE          = 19, // (event, creature, summon) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_SUMMONED_CREATURE_DESPAWN       = 20, // (event, creature, summon) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_SUMMONED_CREATURE_DIED          = 21, // (event, creature, summon, killer) - Can return true to stop normal action    // Not on mangos
+     *     CREATURE_EVENT_ON_SUMMONED                        = 22, // (event, creature, summoner) - Can return true to stop normal action
      *     CREATURE_EVENT_ON_RESET                           = 23, // (event, creature)
-     *     CREATURE_EVENT_ON_REACH_HOME                      = 24, // (event, creature)
+     *     CREATURE_EVENT_ON_REACH_HOME                      = 24, // (event, creature) - Can return true to stop normal action
      *     // UNUSED                                         = 25, // (event, creature)
-     *     CREATURE_EVENT_ON_CORPSE_REMOVED                  = 26, // (event, creature, respawndelay) - Can return new respawndelay
-     *     CREATURE_EVENT_ON_MOVE_IN_LOS                     = 27, // (event, creature, unit) - Does not actually check LOS. Just uses the sight range
+     *     CREATURE_EVENT_ON_CORPSE_REMOVED                  = 26, // (event, creature, respawndelay) - Can return true to stop normal action, can return new respawndelay as second return value
+     *     CREATURE_EVENT_ON_MOVE_IN_LOS                     = 27, // (event, creature, unit) - Can return true to stop normal action. Does not actually check LOS, just uses the sight range
      *     // UNUSED                                         = 28, // (event, creature)
      *     // UNUSED                                         = 29, // (event, creature)
      *     CREATURE_EVENT_ON_DUMMY_EFFECT                    = 30, // (event, caster, spellid, effindex, creature)
-     *     CREATURE_EVENT_ON_QUEST_ACCEPT                    = 31, // (event, player, creature, quest)
+     *     CREATURE_EVENT_ON_QUEST_ACCEPT                    = 31, // (event, player, creature, quest) - Can return true
      *     // UNUSED                                         = 32, // (event, creature)
      *     // UNUSED                                         = 33, // (event, creature)
-     *     CREATURE_EVENT_ON_QUEST_REWARD                    = 34, // (event, player, creature, quest, opt)
+     *     CREATURE_EVENT_ON_QUEST_REWARD                    = 34, // (event, player, creature, quest, opt) - Can return true
      *     CREATURE_EVENT_ON_DIALOG_STATUS                   = 35, // (event, player, creature)
      *     CREATURE_EVENT_ON_ADD                             = 36, // (event, creature)
      *     CREATURE_EVENT_ON_REMOVE                          = 37, // (event, creature)
@@ -1072,9 +1094,9 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterCreatureEvent(Eluna* E, lua_State* L)
+    int RegisterCreatureEvent(lua_State* L)
     {
-        return RegisterEntryHelper(E, L, Hooks::REGTYPE_CREATURE);
+        return RegisterEntryHelper(L, Hooks::REGTYPE_CREATURE);
     }
 
     /**
@@ -1083,40 +1105,40 @@ namespace LuaGlobalFunctions
      * <pre>
      * enum CreatureEvents
      * {
-     *     CREATURE_EVENT_ON_ENTER_COMBAT                    = 1,  // (event, creature, target)
-     *     CREATURE_EVENT_ON_LEAVE_COMBAT                    = 2,  // (event, creature)
-     *     CREATURE_EVENT_ON_TARGET_DIED                     = 3,  // (event, creature, victim)
-     *     CREATURE_EVENT_ON_DIED                            = 4,  // (event, creature, killer)
-     *     CREATURE_EVENT_ON_SPAWN                           = 5,  // (event, creature)
-     *     CREATURE_EVENT_ON_REACH_WP                        = 6,  // (event, creature, type, id)
-     *     CREATURE_EVENT_ON_AIUPDATE                        = 7,  // (event, creature, diff)
-     *     CREATURE_EVENT_ON_RECEIVE_EMOTE                   = 8,  // (event, creature, player, emoteid)
-     *     CREATURE_EVENT_ON_DAMAGE_TAKEN                    = 9,  // (event, creature, attacker, damage) - Can return new damage
-     *     CREATURE_EVENT_ON_PRE_COMBAT                      = 10, // (event, creature, target)
-     *     CREATURE_EVENT_ON_ATTACKED_AT                     = 11, // (event, creature, attacker)
-     *     CREATURE_EVENT_ON_OWNER_ATTACKED                  = 12, // (event, creature, target)    // Not on mangos
-     *     CREATURE_EVENT_ON_OWNER_ATTACKED_AT               = 13, // (event, creature, attacker)  // Not on mangos
-     *     CREATURE_EVENT_ON_HIT_BY_SPELL                    = 14, // (event, creature, caster, spellid)
-     *     CREATURE_EVENT_ON_SPELL_HIT_TARGET                = 15, // (event, creature, target, spellid)
+     *     CREATURE_EVENT_ON_ENTER_COMBAT                    = 1,  // (event, creature, target) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_LEAVE_COMBAT                    = 2,  // (event, creature) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_TARGET_DIED                     = 3,  // (event, creature, victim) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_DIED                            = 4,  // (event, creature, killer) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_SPAWN                           = 5,  // (event, creature) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_REACH_WP                        = 6,  // (event, creature, type, id) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_AIUPDATE                        = 7,  // (event, creature, diff) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_RECEIVE_EMOTE                   = 8,  // (event, creature, player, emoteid) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_DAMAGE_TAKEN                    = 9,  // (event, creature, attacker, damage) - Can return true to stop normal action, can return new damage as second return value.
+     *     CREATURE_EVENT_ON_PRE_COMBAT                      = 10, // (event, creature, target) - Can return true to stop normal action
+     *     // UNUSED
+     *     CREATURE_EVENT_ON_OWNER_ATTACKED                  = 12, // (event, creature, target) - Can return true to stop normal action            // Not on mangos
+     *     CREATURE_EVENT_ON_OWNER_ATTACKED_AT               = 13, // (event, creature, attacker) - Can return true to stop normal action          // Not on mangos
+     *     CREATURE_EVENT_ON_HIT_BY_SPELL                    = 14, // (event, creature, caster, spellid) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_SPELL_HIT_TARGET                = 15, // (event, creature, target, spellid) - Can return true to stop normal action
      *     // UNUSED                                         = 16, // (event, creature)
      *     // UNUSED                                         = 17, // (event, creature)
      *     // UNUSED                                         = 18, // (event, creature)
-     *     CREATURE_EVENT_ON_JUST_SUMMONED_CREATURE          = 19, // (event, creature, summon)
-     *     CREATURE_EVENT_ON_SUMMONED_CREATURE_DESPAWN       = 20, // (event, creature, summon)
-     *     CREATURE_EVENT_ON_SUMMONED_CREATURE_DIED          = 21, // (event, creature, summon, killer)    // Not on mangos
-     *     CREATURE_EVENT_ON_SUMMONED                        = 22, // (event, creature, summoner)
+     *     CREATURE_EVENT_ON_JUST_SUMMONED_CREATURE          = 19, // (event, creature, summon) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_SUMMONED_CREATURE_DESPAWN       = 20, // (event, creature, summon) - Can return true to stop normal action
+     *     CREATURE_EVENT_ON_SUMMONED_CREATURE_DIED          = 21, // (event, creature, summon, killer) - Can return true to stop normal action    // Not on mangos
+     *     CREATURE_EVENT_ON_SUMMONED                        = 22, // (event, creature, summoner) - Can return true to stop normal action
      *     CREATURE_EVENT_ON_RESET                           = 23, // (event, creature)
-     *     CREATURE_EVENT_ON_REACH_HOME                      = 24, // (event, creature)
+     *     CREATURE_EVENT_ON_REACH_HOME                      = 24, // (event, creature) - Can return true to stop normal action
      *     // UNUSED                                         = 25, // (event, creature)
-     *     CREATURE_EVENT_ON_CORPSE_REMOVED                  = 26, // (event, creature, respawndelay) - Can return new respawndelay
-     *     CREATURE_EVENT_ON_MOVE_IN_LOS                     = 27, // (event, creature, unit) - Does not actually check LOS. Just uses the sight range
+     *     CREATURE_EVENT_ON_CORPSE_REMOVED                  = 26, // (event, creature, respawndelay) - Can return true to stop normal action, can return new respawndelay as second return value
+     *     CREATURE_EVENT_ON_MOVE_IN_LOS                     = 27, // (event, creature, unit) - Can return true to stop normal action. Does not actually check LOS, just uses the sight range
      *     // UNUSED                                         = 28, // (event, creature)
      *     // UNUSED                                         = 29, // (event, creature)
      *     CREATURE_EVENT_ON_DUMMY_EFFECT                    = 30, // (event, caster, spellid, effindex, creature)
-     *     CREATURE_EVENT_ON_QUEST_ACCEPT                    = 31, // (event, player, creature, quest)
+     *     CREATURE_EVENT_ON_QUEST_ACCEPT                    = 31, // (event, player, creature, quest) - Can return true
      *     // UNUSED                                         = 32, // (event, creature)
      *     // UNUSED                                         = 33, // (event, creature)
-     *     CREATURE_EVENT_ON_QUEST_REWARD                    = 34, // (event, player, creature, quest, opt)
+     *     CREATURE_EVENT_ON_QUEST_REWARD                    = 34, // (event, player, creature, quest, opt) - Can return true
      *     CREATURE_EVENT_ON_DIALOG_STATUS                   = 35, // (event, player, creature)
      *     CREATURE_EVENT_ON_ADD                             = 36, // (event, creature)
      *     CREATURE_EVENT_ON_REMOVE                          = 37, // (event, creature)
@@ -1135,9 +1157,9 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterUniqueCreatureEvent(Eluna* E, lua_State* L)
+    int RegisterUniqueCreatureEvent(lua_State* L)
     {
-        return RegisterUniqueHelper(E, L, Hooks::REGTYPE_CREATURE);
+        return RegisterUniqueHelper(L, Hooks::REGTYPE_CREATURE);
     }
 
     /**
@@ -1148,17 +1170,18 @@ namespace LuaGlobalFunctions
      * {
      *     GAMEOBJECT_EVENT_ON_AIUPDATE                    = 1,    // (event, go, diff)
      *     GAMEOBJECT_EVENT_ON_SPAWN                       = 2,    // (event, go)
-     *     GAMEOBJECT_EVENT_ON_DUMMY_EFFECT                = 3,    // (event, caster, spellid, effindex, go)
-     *     GAMEOBJECT_EVENT_ON_QUEST_ACCEPT                = 4,    // (event, player, go, quest)
-     *     GAMEOBJECT_EVENT_ON_QUEST_REWARD                = 5,    // (event, player, go, quest, opt)
+     *     GAMEOBJECT_EVENT_ON_DUMMY_EFFECT                = 3,    // (event, caster, spellid, effindex, go) - Can return true to stop normal action
+     *     GAMEOBJECT_EVENT_ON_QUEST_ACCEPT                = 4,    // (event, player, go, quest) - Can return true to stop normal action
+     *     GAMEOBJECT_EVENT_ON_QUEST_REWARD                = 5,    // (event, player, go, quest, opt) - Can return true to stop normal action
      *     GAMEOBJECT_EVENT_ON_DIALOG_STATUS               = 6,    // (event, player, go)
-     *     GAMEOBJECT_EVENT_ON_DESTROYED                   = 7,    // (event, go, player)
-     *     GAMEOBJECT_EVENT_ON_DAMAGED                     = 8,    // (event, go, player)
+     *     GAMEOBJECT_EVENT_ON_DESTROYED                   = 7,    // (event, go, attacker)
+     *     GAMEOBJECT_EVENT_ON_DAMAGED                     = 8,    // (event, go, attacker)
      *     GAMEOBJECT_EVENT_ON_LOOT_STATE_CHANGE           = 9,    // (event, go, state)
      *     GAMEOBJECT_EVENT_ON_GO_STATE_CHANGED            = 10,   // (event, go, state)
      *     // UNUSED                                       = 11,   // (event, gameobject)
      *     GAMEOBJECT_EVENT_ON_ADD                         = 12,   // (event, gameobject)
      *     GAMEOBJECT_EVENT_ON_REMOVE                      = 13,   // (event, gameobject)
+     *     GAMEOBJECT_EVENT_ON_USE                         = 14,   // (event, go, player) - Can return true to stop normal action
      *     GAMEOBJECT_EVENT_COUNT
      * };
      * </pre>
@@ -1173,15 +1196,15 @@ namespace LuaGlobalFunctions
      *
      * @return function cancel : a function that cancels the binding when called
      */
-    int RegisterGameObjectEvent(Eluna* E, lua_State* L)
+    int RegisterGameObjectEvent(lua_State* L)
     {
-        return RegisterEntryHelper(E, L, Hooks::REGTYPE_GAMEOBJECT);
+        return RegisterEntryHelper(L, Hooks::REGTYPE_GAMEOBJECT);
     }
 
     /**
      * Reloads the Lua engine.
      */
-    int ReloadEluna(Eluna* /*E*/, lua_State* /*L*/)
+    int ReloadEluna(lua_State* /*L*/)
     {
         Eluna::ReloadEluna();
         return 0;
@@ -1192,7 +1215,7 @@ namespace LuaGlobalFunctions
      *
      * @param string message : message to send
      */
-    int SendWorldMessage(Eluna* /*E*/, lua_State* L)
+    int SendWorldMessage(lua_State* L)
     {
         const char* message = Eluna::CHECKVAL<const char*>(L, 1);
         eWorld->SendServerMessage(SERVER_MSG_STRING, message);
@@ -1203,16 +1226,24 @@ namespace LuaGlobalFunctions
      * Executes a SQL query on the world database and returns an [ElunaQuery].
      *
      * The query is always executed synchronously
-     *   (i.e. when this function returns the query has already been executed).
+     *   (i.e. execution halts until the query has finished and then results are returned).
+     *
+     *     local Q = WorldDBQuery("SELECT entry, name FROM creature_template LIMIT 10")
+     *     if Q then
+     *         repeat
+     *             local entry, name = Q:GetUInt32(0), Q:GetString(1)
+     *             print(entry, name)
+     *         until not Q:NextRow()
+     *     end
      *
      * @param string sql : query to execute
-     * @return [ElunaQuery] results
+     * @return [ElunaQuery] results or nil if no rows found or nil if no rows found
      */
-    int WorldDBQuery(Eluna* /*E*/, lua_State* L)
+    int WorldDBQuery(lua_State* L)
     {
         const char* query = Eluna::CHECKVAL<const char*>(L, 1);
 
-#ifdef TRINITY
+#if defined TRINITY || AZEROTHCORE
         ElunaQuery result = WorldDatabase.Query(query);
         if (result)
             Eluna::Push(L, new ElunaQuery(result));
@@ -1237,9 +1268,11 @@ namespace LuaGlobalFunctions
      * Any results produced are ignored.
      * If you need results from the query, use [Global:WorldDBQuery] instead.
      *
+     *     WorldDBExecute("DELETE FROM my_table")
+     *
      * @param string sql : query to execute
      */
-    int WorldDBExecute(Eluna* /*E*/, lua_State* L)
+    int WorldDBExecute(lua_State* L)
     {
         const char* query = Eluna::CHECKVAL<const char*>(L, 1);
         WorldDatabase.Execute(query);
@@ -1250,16 +1283,18 @@ namespace LuaGlobalFunctions
      * Executes a SQL query on the character database and returns an [ElunaQuery].
      *
      * The query is always executed synchronously
-     *   (i.e. when this function returns the query has already been executed).
+     *   (i.e. execution halts until the query has finished and then results are returned).
+     *
+     * For an example see [Global:WorldDBQuery].
      *
      * @param string sql : query to execute
-     * @return [ElunaQuery] results
+     * @return [ElunaQuery] results or nil if no rows found
      */
-    int CharDBQuery(Eluna* /*E*/, lua_State* L)
+    int CharDBQuery(lua_State* L)
     {
         const char* query = Eluna::CHECKVAL<const char*>(L, 1);
 
-#ifdef TRINITY
+#if defined TRINITY || AZEROTHCORE
         QueryResult result = CharacterDatabase.Query(query);
         if (result)
             Eluna::Push(L, new QueryResult(result));
@@ -1279,14 +1314,16 @@ namespace LuaGlobalFunctions
      * Executes a SQL query on the character database.
      *
      * The query may be executed *asynchronously* (at a later, unpredictable time).
-     * If you need to execute the query synchronously, use [Global:WorldDBQuery] instead.
+     * If you need to execute the query synchronously, use [Global:CharDBQuery] instead.
      *
      * Any results produced are ignored.
-     * If you need results from the query, use [Global:WorldDBQuery] instead.
+     * If you need results from the query, use [Global:CharDBQuery] instead.
+     *
+     *     CharDBExecute("DELETE FROM my_table")
      *
      * @param string sql : query to execute
      */
-    int CharDBExecute(Eluna* /*E*/, lua_State* L)
+    int CharDBExecute(lua_State* L)
     {
         const char* query = Eluna::CHECKVAL<const char*>(L, 1);
         CharacterDatabase.Execute(query);
@@ -1297,16 +1334,18 @@ namespace LuaGlobalFunctions
      * Executes a SQL query on the login database and returns an [ElunaQuery].
      *
      * The query is always executed synchronously
-     *   (i.e. when this function returns the query has already been executed).
+     *   (i.e. execution halts until the query has finished and then results are returned).
+     *
+     * For an example see [Global:WorldDBQuery].
      *
      * @param string sql : query to execute
-     * @return [ElunaQuery] results
+     * @return [ElunaQuery] results or nil if no rows found
      */
-    int AuthDBQuery(Eluna* /*E*/, lua_State* L)
+    int AuthDBQuery(lua_State* L)
     {
         const char* query = Eluna::CHECKVAL<const char*>(L, 1);
 
-#ifdef TRINITY
+#if defined TRINITY || AZEROTHCORE
         QueryResult result = LoginDatabase.Query(query);
         if (result)
             Eluna::Push(L, new QueryResult(result));
@@ -1326,14 +1365,16 @@ namespace LuaGlobalFunctions
      * Executes a SQL query on the login database.
      *
      * The query may be executed *asynchronously* (at a later, unpredictable time).
-     * If you need to execute the query synchronously, use [Global:WorldDBQuery] instead.
+     * If you need to execute the query synchronously, use [Global:AuthDBQuery] instead.
      *
      * Any results produced are ignored.
-     * If you need results from the query, use [Global:WorldDBQuery] instead.
+     * If you need results from the query, use [Global:AuthDBQuery] instead.
+     *
+     *     AuthDBExecute("DELETE FROM my_table")
      *
      * @param string sql : query to execute
      */
-    int AuthDBExecute(Eluna* /*E*/, lua_State* L)
+    int AuthDBExecute(lua_State* L)
     {
         const char* query = Eluna::CHECKVAL<const char*>(L, 1);
         LoginDatabase.Execute(query);
@@ -1347,22 +1388,43 @@ namespace LuaGlobalFunctions
      *
      * Repeats will decrease on each call if the event does not repeat indefinitely
      *
+     * @proto eventId = (function, delay)
+     * @proto eventId = (function, delaytable)
+     * @proto eventId = (function, delay, repeats)
+     * @proto eventId = (function, delaytable, repeats)
+     *
      * @param function function : function to trigger when the time has passed
      * @param uint32 delay : set time in milliseconds for the event to trigger
-     * @param uint32 repeats : how many times for the event to repeat, 0 is infinite
+     * @param table delaytable : a table `{min, max}` containing the minimum and maximum delay time
+     * @param uint32 repeats = 1 : how many times for the event to repeat, 0 is infinite
      * @return int eventId : unique ID for the timed event used to cancel it or nil
      */
-    int CreateLuaEvent(Eluna* E, lua_State* L)
+    int CreateLuaEvent(lua_State* L)
     {
         luaL_checktype(L, 1, LUA_TFUNCTION);
-        uint32 delay = Eluna::CHECKVAL<uint32>(L, 2);
-        uint32 repeats = Eluna::CHECKVAL<uint32>(L, 3);
+        uint32 min, max;
+        if (lua_istable(L, 2))
+        {
+            Eluna::Push(L, 1);
+            lua_gettable(L, 2);
+            min = Eluna::CHECKVAL<uint32>(L, -1);
+            Eluna::Push(L, 2);
+            lua_gettable(L, 2);
+            max = Eluna::CHECKVAL<uint32>(L, -1);
+            lua_pop(L, 2);
+        }
+        else
+            min = max = Eluna::CHECKVAL<uint32>(L, 2);
+        uint32 repeats = Eluna::CHECKVAL<uint32>(L, 3, 1);
+
+        if (min > max)
+            return luaL_argerror(L, 2, "min is bigger than max delay");
 
         lua_pushvalue(L, 1);
         int functionRef = luaL_ref(L, LUA_REGISTRYINDEX);
         if (functionRef != LUA_REFNIL && functionRef != LUA_NOREF)
         {
-            E->eventMgr->globalProcessor->AddEvent(functionRef, delay, repeats);
+            Eluna::GetEluna(L)->eventMgr->globalProcessor->AddEvent(functionRef, min, max, repeats);
             Eluna::Push(L, functionRef);
         }
         return 1;
@@ -1374,16 +1436,16 @@ namespace LuaGlobalFunctions
      * @param int eventId : event Id to remove
      * @param bool all_Events = false : remove from all events, not just global
      */
-    int RemoveEventById(Eluna* E, lua_State* L)
+    int RemoveEventById(lua_State* L)
     {
         int eventId = Eluna::CHECKVAL<int>(L, 1);
         bool all_Events = Eluna::CHECKVAL<bool>(L, 1, false);
 
         // not thread safe
         if (all_Events)
-            E->eventMgr->SetState(eventId, LUAEVENT_STATE_ABORT);
+            Eluna::GetEluna(L)->eventMgr->SetState(eventId, LUAEVENT_STATE_ABORT);
         else
-            E->eventMgr->globalProcessor->SetState(eventId, LUAEVENT_STATE_ABORT);
+            Eluna::GetEluna(L)->eventMgr->globalProcessor->SetState(eventId, LUAEVENT_STATE_ABORT);
         return 0;
     }
 
@@ -1392,15 +1454,15 @@ namespace LuaGlobalFunctions
      *
      * @param bool all_Events = false : remove all events, not just global
      */
-    int RemoveEvents(Eluna* E, lua_State* L)
+    int RemoveEvents(lua_State* L)
     {
         bool all_Events = Eluna::CHECKVAL<bool>(L, 1, false);
 
         // not thread safe
         if (all_Events)
-            E->eventMgr->SetStates(LUAEVENT_STATE_ABORT);
+            Eluna::GetEluna(L)->eventMgr->SetStates(LUAEVENT_STATE_ABORT);
         else
-            E->eventMgr->globalProcessor->SetStates(LUAEVENT_STATE_ABORT);
+            Eluna::GetEluna(L)->eventMgr->globalProcessor->SetStates(LUAEVENT_STATE_ABORT);
         return 0;
     }
 
@@ -1420,7 +1482,7 @@ namespace LuaGlobalFunctions
      * @param uint32 phase = 1 : phase to put the [Creature] or [GameObject] in
      * @return [WorldObject] worldObject : returns [Creature] or [GameObject]
      */
-    int PerformIngameSpawn(Eluna* /*E*/, lua_State* L)
+    int PerformIngameSpawn(lua_State* L)
     {
         int spawntype = Eluna::CHECKVAL<int>(L, 1);
         uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
@@ -1441,7 +1503,7 @@ namespace LuaGlobalFunctions
         }
 #endif
 
-#ifndef TRINITY
+#if !defined TRINITY && !AZEROTHCORE
         Map* map = eMapMgr->FindMap(mapID, instanceID);
         if (!map)
         {
@@ -1532,7 +1594,7 @@ namespace LuaGlobalFunctions
                 pCreature->SetActiveObjectState(false);
 
                 // Also initializes the AI and MMGen
-                pCreature->Summon(durorresptime ? TEMPSUMMON_TIMED_OR_DEAD_DESPAWN : TEMPSUMMON_MANUAL_DESPAWN, durorresptime);
+                pCreature->Summon(durorresptime ? TEMPSPAWN_TIMED_OR_DEAD_DESPAWN : TEMPSPAWN_MANUAL_DESPAWN, durorresptime);
 
                 // Creature Linking, Initial load is handled like respawn
                 if (pCreature->IsLinkingEventTrigger())
@@ -1598,6 +1660,7 @@ namespace LuaGlobalFunctions
                 // DEBUG_LOG(GetMangosString(LANG_GAMEOBJECT_CURRENT), gInfo->name, db_lowGUID, x, y, z, o);
 
                 map->Add(pGameObj);
+                pGameObj->AIM_Initialize();
 
                 eObjectMgr->AddGameobjectToGrid(db_lowGUID, eObjectMgr->GetGOData(db_lowGUID));
 
@@ -1621,6 +1684,7 @@ namespace LuaGlobalFunctions
                 pGameObj->SetRespawnTime(durorresptime / IN_MILLISECONDS);
 
                 map->Add(pGameObj);
+                pGameObj->AIM_Initialize();
 
                 Eluna::Push(L, pGameObj);
             }
@@ -1641,7 +1705,11 @@ namespace LuaGlobalFunctions
             if (save)
             {
                 Creature* creature = new Creature();
-                if (!creature->Create(map->GenerateLowGuid<HighGuid::Unit>(), map, phase, entry, x, y, z, o))
+#ifndef AZEROTHCORE
+                if (!creature->Create(map->GenerateLowGuid<HighGuid::Unit>(), map, phase, entry, pos))
+#else
+                if (!creature->Create(sObjectMgr->GenerateLowGuid(HIGHGUID_UNIT), map, phase, entry, 0, x, y, z, o))
+#endif
                 {
                     delete creature;
                     Eluna::Push(L);
@@ -1650,14 +1718,21 @@ namespace LuaGlobalFunctions
 
                 creature->SaveToDB(map->GetId(), (1 << map->GetSpawnMode()), phase);
 
+#ifndef AZEROTHCORE
                 uint32 db_guid = creature->GetSpawnId();
-
+#else
+                uint32 db_guid = creature->GetDBTableGUIDLow();
+#endif
                 // To call _LoadGoods(); _LoadQuests(); CreateTrainerSpells()
                 // current "creature" variable is deleted and created fresh new, otherwise old values might trigger asserts or cause undefined behavior
                 creature->CleanupsBeforeDelete();
                 delete creature;
                 creature = new Creature();
-                if (!creature->LoadCreatureFromDB(db_guid, map))
+#ifndef AZEROTHCORE
+                if (!creature->LoadFromDB(db_guid, map, true, true))
+#else
+                if (!creature->LoadFromDB(db_guid, map))
+#endif
                 {
                     delete creature;
                     Eluna::Push(L);
@@ -1703,10 +1778,14 @@ namespace LuaGlobalFunctions
             }
 
             GameObject* object = new GameObject;
+#ifndef AZEROTHCORE
             uint32 guidLow = map->GenerateLowGuid<HighGuid::GameObject>();
-
-            G3D::Quat rot = G3D::Matrix3::fromEulerAnglesZYX(o, 0.f, 0.f);
+            QuaternionData rot = QuaternionData::fromEulerAnglesZYX(o, 0.f, 0.f);
             if (!object->Create(guidLow, objectInfo->entry, map, phase, Position(x, y, z, o), rot, 0, GO_STATE_READY))
+#else
+            uint32 guidLow = sObjectMgr->GenerateLowGuid(HIGHGUID_GAMEOBJECT);
+            if (!object->Create(guidLow, entry, map, phase, x, y, z, o, G3D::Quat(0.0f, 0.0f, 0.0f, 0.0f), 100, GO_STATE_READY))
+#endif
             {
                 delete object;
                 Eluna::Push(L);
@@ -1720,7 +1799,11 @@ namespace LuaGlobalFunctions
             {
                 // fill the gameobject data and save to the db
                 object->SaveToDB(map->GetId(), (1 << map->GetSpawnMode()), phase);
+#ifndef AZEROTHCORE
                 guidLow = object->GetSpawnId();
+#else
+                guidLow = object->GetDBTableGUIDLow();
+#endif
 
                 // delete the old object and do a clean load from DB with a fresh new GameObject instance.
                 // this is required to avoid weird behavior and memory leaks
@@ -1728,14 +1811,21 @@ namespace LuaGlobalFunctions
 
                 object = new GameObject();
                 // this will generate a new lowguid if the object is in an instance
-                if (!object->LoadGameObjectFromDB(guidLow, map))
+#ifndef AZEROTHCORE
+                if (!object->LoadFromDB(guidLow, map, true))
+#else
+                if (!object->LoadFromDB(guidLow, map))
+#endif
                 {
                     delete object;
                     Eluna::Push(L);
                     return 1;
                 }
-
+#ifndef AZEROTHCORE
+                eObjectMgr->AddGameobjectToGrid(guidLow, eObjectMgr->GetGameObjectData(guidLow));
+#else
                 eObjectMgr->AddGameobjectToGrid(guidLow, eObjectMgr->GetGOData(guidLow));
+#endif
             }
             else
                 map->AddToMap(object);
@@ -1754,7 +1844,7 @@ namespace LuaGlobalFunctions
      * @param uint32 size : the size of the packet
      * @return [WorldPacket] packet
      */
-    int CreatePacket(Eluna* /*E*/, lua_State* L)
+    int CreatePacket(lua_State* L)
     {
         uint32 opcode = Eluna::CHECKVAL<uint32>(L, 1);
         size_t size = Eluna::CHECKVAL<size_t>(L, 2);
@@ -1774,7 +1864,7 @@ namespace LuaGlobalFunctions
      * @param uint32 incrtime : combined with maxcount, incrtime tells how often (in seconds) the vendor list is refreshed and the limited [Item] copies are restocked
      * @param uint32 extendedcost : unique cost of an [Item], such as conquest points for example
      */
-    int AddVendorItem(Eluna* /*E*/, lua_State* L)
+    int AddVendorItem(lua_State* L)
     {
         uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
         uint32 item = Eluna::CHECKVAL<uint32>(L, 2);
@@ -1782,15 +1872,7 @@ namespace LuaGlobalFunctions
         uint32 incrtime = Eluna::CHECKVAL<uint32>(L, 4);
         uint32 extendedcost = Eluna::CHECKVAL<uint32>(L, 5);
 
-#ifndef TRINITY
-        if (!eObjectMgr->IsVendorItemValid(false, "npc_vendor", entry, item, maxcount, incrtime, extendedcost, 0))
-            return 0;
-#ifndef CLASSIC
-        eObjectMgr->AddVendorItem(entry, item, maxcount, incrtime, extendedcost);
-#else
-        eObjectMgr->AddVendorItem(entry, item, maxcount, incrtime);
-#endif
-#else
+#if defined TRINITY || AZEROTHCORE
 #ifdef CATA
         if (!eObjectMgr->IsVendorItemValid(entry, item, maxcount, incrtime, extendedcost, 1))
             return 0;
@@ -1800,7 +1882,15 @@ namespace LuaGlobalFunctions
             return 0;
         eObjectMgr->AddVendorItem(entry, item, maxcount, incrtime, extendedcost);
 #endif
+#else
+        if (!eObjectMgr->IsVendorItemValid(false, "npc_vendor", entry, item, maxcount, incrtime, extendedcost, 0))
+            return 0;
+#ifndef CLASSIC
+        eObjectMgr->AddVendorItem(entry, item, maxcount, incrtime, extendedcost);
+#else
+        eObjectMgr->AddVendorItem(entry, item, maxcount, incrtime);
 #endif
+#endif//TRINITY
         return 0;
     }
 
@@ -1810,14 +1900,14 @@ namespace LuaGlobalFunctions
      * @param uint32 entry : [Creature] entry Id
      * @param uint32 item : [Item] entry Id
      */
-    int VendorRemoveItem(Eluna* /*E*/, lua_State* L)
+    int VendorRemoveItem(lua_State* L)
     {
         uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
         uint32 item = Eluna::CHECKVAL<uint32>(L, 2);
         if (!eObjectMgr->GetCreatureTemplate(entry))
             return luaL_argerror(L, 1, "valid CreatureEntry expected");
 
-#ifdef CATA
+#if defined(CATA) || defined(MISTS)
         eObjectMgr->RemoveVendorItem(entry, item, 1);
 #else
         eObjectMgr->RemoveVendorItem(entry, item);
@@ -1830,7 +1920,7 @@ namespace LuaGlobalFunctions
      *
      * @param uint32 entry : [Creature] entry Id
      */
-    int VendorRemoveAllItems(Eluna* /*E*/, lua_State* L)
+    int VendorRemoveAllItems(lua_State* L)
     {
         uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
 
@@ -1838,12 +1928,16 @@ namespace LuaGlobalFunctions
         if (!items || items->Empty())
             return 0;
 
-        VendorItemList const itemlist = items->m_items;
-        for (VendorItemList::const_iterator itr = itemlist.begin(); itr != itemlist.end(); ++itr)
-#ifdef CATA
+        auto const itemlist = items->m_items;
+        for (auto itr = itemlist.begin(); itr != itemlist.end(); ++itr)
+#if defined(CATA) || defined(MISTS)
             eObjectMgr->RemoveVendorItem(entry, (*itr)->item, 1);
 #else
+#ifdef TRINITY
+            eObjectMgr->RemoveVendorItem(entry, itr->item);
+#else
             eObjectMgr->RemoveVendorItem(entry, (*itr)->item);
+#endif
 #endif
         return 0;
     }
@@ -1853,10 +1947,14 @@ namespace LuaGlobalFunctions
      *
      * @param [Player] player : [Player] to kick
      */
-    int Kick(Eluna* /*E*/, lua_State* L)
+    int Kick(lua_State* L)
     {
         Player* player = Eluna::CHECKOBJ<Player>(L, 1);
+#ifdef TRINITY
+        player->GetSession()->KickPlayer("GlobalMethods::Kick Kick the player");
+#else
         player->GetSession()->KickPlayer();
+#endif
         return 0;
     }
 
@@ -1865,18 +1963,19 @@ namespace LuaGlobalFunctions
      *
      *     enum BanMode
      *     {
-     *         BAN_ACCOUNT,
-     *         BAN_CHARACTER,
-     *         BAN_IP
+     *         BAN_ACCOUNT = 0,
+     *         BAN_CHARACTER = 1,
+     *         BAN_IP = 2
      *     };
      *
      * @param [BanMode] banMode : method of ban, refer to BanMode above
-     * @param string nameOrIP : name of the [Player] or IP of the [Player]
+     * @param string nameOrIP : If BanMode is 0 then accountname, if 1 then charactername if 2 then ip
      * @param uint32 duration : duration (in seconds) of the ban
      * @param string reason = "" : ban reason, this is optional
      * @param string whoBanned = "" : the [Player]'s name that banned the account, character or IP, this is optional
+     * @return int result : status of the ban. 0 if success, 1 if syntax error, 2 if target not found, 3 if a longer ban already exists, nil if unknown result
      */
-    int Ban(Eluna* /*E*/, lua_State* L)
+    int Ban(lua_State* L)
     {
         int banMode = Eluna::CHECKVAL<int>(L, 1);
         std::string nameOrIP = Eluna::CHECKVAL<std::string>(L, 2);
@@ -1884,37 +1983,84 @@ namespace LuaGlobalFunctions
         const char* reason = Eluna::CHECKVAL<const char*>(L, 4, "");
         const char* whoBanned = Eluna::CHECKVAL<const char*>(L, 5, "");
 
+        const int BAN_ACCOUNT = 0;
+        const int BAN_CHARACTER = 1;
+        const int BAN_IP = 2;
+
+        BanMode mode = BanMode::BAN_ACCOUNT;
+
         switch (banMode)
         {
             case BAN_ACCOUNT:
-#ifdef TRINITY
+#if defined TRINITY || AZEROTHCORE
                 if (!Utf8ToUpperOnlyLatin(nameOrIP))
-                    return 0;
+                    return luaL_argerror(L, 2, "invalid account name");
 #else
                 if (!AccountMgr::normalizeString(nameOrIP))
-                    return 0;
+                    return luaL_argerror(L, 2, "invalid account name");
 #endif
+                mode = BanMode::BAN_ACCOUNT;
                 break;
             case BAN_CHARACTER:
                 if (!normalizePlayerName(nameOrIP))
-                    return 0;
+                    return luaL_argerror(L, 2, "invalid character name");
+                mode = BanMode::BAN_CHARACTER;
                 break;
             case BAN_IP:
                 if (!IsIPAddress(nameOrIP.c_str()))
-                    return 0;
+                    return luaL_argerror(L, 2, "invalid ip");
+                mode = BanMode::BAN_IP;
                 break;
             default:
-                return 0;
+                return luaL_argerror(L, 1, "unknown banmode");
         }
 
-        eWorld->BanAccount((BanMode)banMode, nameOrIP, duration, reason, whoBanned);
-        return 0;
+        BanReturn result;
+#ifndef AZEROTHCORE
+        result = eWorld->BanAccount(mode, nameOrIP, duration, reason, whoBanned);
+#else
+        switch (banMode)
+        {
+            case BAN_ACCOUNT:
+                result = sBan->BanAccount(nameOrIP, std::to_string(duration) + "s", reason, whoBanned);
+            break;
+            case BAN_CHARACTER:
+                result = sBan->BanCharacter(nameOrIP, std::to_string(duration) + "s", reason, whoBanned);
+            break;
+            case BAN_IP:
+                result = sBan->BanIP(nameOrIP, std::to_string(duration) + "s", reason, whoBanned);
+            break;
+        }
+#endif
+
+        switch (result)
+        {
+        case BanReturn::BAN_SUCCESS:
+            Eluna::Push(L, 0);
+            break;
+        case BanReturn::BAN_SYNTAX_ERROR:
+            Eluna::Push(L, 1);
+            break;
+        case BanReturn::BAN_NOTFOUND:
+            Eluna::Push(L, 2);
+            break;
+#ifdef AZEROTHCORE
+        case BanReturn::BAN_LONGER_EXISTS:
+            Eluna::Push(L, 3);
+            break;
+#elif TRINITY
+        case BanReturn::BAN_EXISTS:
+            Eluna::Push(L, 3);
+            break;
+#endif
+        }
+        return 1;
     }
 
     /**
      * Saves all [Player]s.
      */
-    int SaveAllPlayers(Eluna* /*E*/, lua_State* /*L*/)
+    int SaveAllPlayers(lua_State* /*L*/)
     {
         eObjectAccessor()SaveAllPlayers();
         return 0;
@@ -1948,7 +2094,7 @@ namespace LuaGlobalFunctions
      * @param uint32 entry = 0 : entry of an [Item] to send with mail
      * @param uint32 amount = 0 : amount of the [Item] to send with mail
      */
-    int SendMail(Eluna* /*E*/, lua_State* L)
+    int SendMail(lua_State* L)
     {
         int i = 0;
         std::string subject = Eluna::CHECKVAL<std::string>(L, ++i);
@@ -1964,7 +2110,7 @@ namespace LuaGlobalFunctions
         MailSender sender(MAIL_NORMAL, senderGUIDLow, (MailStationery)stationary);
         MailDraft draft(subject, text);
 
-#ifdef TRINITY
+#if defined TRINITY || AZEROTHCORE
         if (cod)
             draft.AddCOD(cod);
         if (money)
@@ -1976,7 +2122,9 @@ namespace LuaGlobalFunctions
             draft.SetMoney(money);
 #endif
 
-#ifdef TRINITY
+#if defined TRINITY
+        CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+#elif defined AZEROTHCORE
         SQLTransaction trans = CharacterDatabase.BeginTransaction();
 #endif
         uint8 addedItems = 0;
@@ -1985,10 +2133,10 @@ namespace LuaGlobalFunctions
             uint32 entry = Eluna::CHECKVAL<uint32>(L, ++i);
             uint32 amount = Eluna::CHECKVAL<uint32>(L, ++i);
 
-#ifndef TRINITY
-            ItemTemplate const* item_proto = ObjectMgr::GetItemPrototype(entry);
-#else
+#if defined TRINITY || AZEROTHCORE
             ItemTemplate const* item_proto = eObjectMgr->GetItemTemplate(entry);
+#else
+            ItemTemplate const* item_proto = ObjectMgr::GetItemPrototype(entry);
 #endif
             if (!item_proto)
             {
@@ -2002,21 +2150,22 @@ namespace LuaGlobalFunctions
             }
             if (Item* item = Item::CreateItem(entry, amount))
             {
-#ifndef TRINITY
-                item->SaveToDB();
-#else
+#if defined TRINITY || AZEROTHCORE
                 item->SaveToDB(trans);
+#else
+                item->SaveToDB();
 #endif
                 draft.AddItem(item);
                 ++addedItems;
             }
         }
 
-#ifndef TRINITY
-        draft.SendMailTo(MailReceiver(MAKE_NEW_GUID(receiverGUIDLow, 0, HIGHGUID_PLAYER)), sender);
-#else
-        draft.SendMailTo(trans, MailReceiver(receiverGUIDLow), sender, MAIL_CHECK_MASK_NONE, delay);
+        Player* receiverPlayer = eObjectAccessor()FindPlayer(MAKE_NEW_GUID(receiverGUIDLow, 0, HIGHGUID_PLAYER));
+#if defined TRINITY || AZEROTHCORE
+        draft.SendMailTo(trans, MailReceiver(receiverPlayer, receiverGUIDLow), sender, MAIL_CHECK_MASK_NONE, delay);
         CharacterDatabase.CommitTransaction(trans);
+#else
+        draft.SendMailTo(MailReceiver(receiverPlayer, MAKE_NEW_GUID(receiverGUIDLow, 0, HIGHGUID_PLAYER)), sender);
 #endif
         return 0;
     }
@@ -2028,7 +2177,7 @@ namespace LuaGlobalFunctions
      * @param uint32 b
      * @return uint32 result
      */
-    int bit_and(Eluna* /*E*/, lua_State* L)
+    int bit_and(lua_State* L)
     {
         uint32 a = Eluna::CHECKVAL<uint32>(L, 1);
         uint32 b = Eluna::CHECKVAL<uint32>(L, 2);
@@ -2043,7 +2192,7 @@ namespace LuaGlobalFunctions
      * @param uint32 b
      * @return uint32 result
      */
-    int bit_or(Eluna* /*E*/, lua_State* L)
+    int bit_or(lua_State* L)
     {
         uint32 a = Eluna::CHECKVAL<uint32>(L, 1);
         uint32 b = Eluna::CHECKVAL<uint32>(L, 2);
@@ -2058,7 +2207,7 @@ namespace LuaGlobalFunctions
      * @param uint32 b
      * @return uint32 result
      */
-    int bit_lshift(Eluna* /*E*/, lua_State* L)
+    int bit_lshift(lua_State* L)
     {
         uint32 a = Eluna::CHECKVAL<uint32>(L, 1);
         uint32 b = Eluna::CHECKVAL<uint32>(L, 2);
@@ -2073,7 +2222,7 @@ namespace LuaGlobalFunctions
      * @param uint32 b
      * @return uint32 result
      */
-    int bit_rshift(Eluna* /*E*/, lua_State* L)
+    int bit_rshift(lua_State* L)
     {
         uint32 a = Eluna::CHECKVAL<uint32>(L, 1);
         uint32 b = Eluna::CHECKVAL<uint32>(L, 2);
@@ -2088,7 +2237,7 @@ namespace LuaGlobalFunctions
      * @param uint32 b
      * @return uint32 result
      */
-    int bit_xor(Eluna* /*E*/, lua_State* L)
+    int bit_xor(lua_State* L)
     {
         uint32 a = Eluna::CHECKVAL<uint32>(L, 1);
         uint32 b = Eluna::CHECKVAL<uint32>(L, 2);
@@ -2102,7 +2251,7 @@ namespace LuaGlobalFunctions
      * @param uint32 a
      * @return uint32 result
      */
-    int bit_not(Eluna* /*E*/, lua_State* L)
+    int bit_not(lua_State* L)
     {
         uint32 a = Eluna::CHECKVAL<uint32>(L, 1);
         Eluna::Push(L, ~a);
@@ -2131,7 +2280,7 @@ namespace LuaGlobalFunctions
      * @param uint32 pathId = 0 : path Id of the taxi path
      * @return uint32 actualPathId
      */
-    int AddTaxiPath(Eluna* /*E*/, lua_State* L)
+    int AddTaxiPath(lua_State* L)
     {
         luaL_checktype(L, 1, LUA_TTABLE);
         uint32 mountA = Eluna::CHECKVAL<uint32>(L, 2);
@@ -2175,10 +2324,10 @@ namespace LuaGlobalFunctions
             TaxiPathNodeEntry entry;
 #ifdef TRINITY
             // mandatory
-            entry.MapID = Eluna::CHECKVAL<uint32>(L, start);
-            entry.LocX = Eluna::CHECKVAL<float>(L, start + 1);
-            entry.LocY = Eluna::CHECKVAL<float>(L, start + 2);
-            entry.LocZ = Eluna::CHECKVAL<float>(L, start + 3);
+            entry.ContinentID = Eluna::CHECKVAL<uint32>(L, start);
+            entry.Loc.X = Eluna::CHECKVAL<float>(L, start + 1);
+            entry.Loc.Y = Eluna::CHECKVAL<float>(L, start + 2);
+            entry.Loc.Z = Eluna::CHECKVAL<float>(L, start + 3);
             // optional
             entry.Flags = Eluna::CHECKVAL<uint32>(L, start + 4, 0);
             entry.Delay = Eluna::CHECKVAL<uint32>(L, start + 5, 0);
@@ -2226,10 +2375,10 @@ namespace LuaGlobalFunctions
             entry.PathID = pathId;
             entry.NodeIndex = nodeId;
             nodeEntry->ID = index;
-            nodeEntry->map_id = entry.MapID;
-            nodeEntry->x = entry.LocX;
-            nodeEntry->y = entry.LocY;
-            nodeEntry->z = entry.LocZ;
+            nodeEntry->ContinentID = entry.ContinentID;
+            nodeEntry->Pos.X = entry.Loc.X;
+            nodeEntry->Pos.Y = entry.Loc.Y;
+            nodeEntry->Pos.Z = entry.Loc.Z;
             nodeEntry->MountCreatureID[0] = mountH;
             nodeEntry->MountCreatureID[1] = mountA;
             sTaxiNodesStore.SetEntry(nodeId++, nodeEntry);
@@ -2245,17 +2394,27 @@ namespace LuaGlobalFunctions
             nodeEntry->MountCreatureID[0] = mountH;
             nodeEntry->MountCreatureID[1] = mountA;
             sTaxiNodesStore.SetEntry(nodeId++, nodeEntry);
+#ifndef AZEROTHCORE
             sTaxiPathNodesByPath[pathId].set(index++, new TaxiPathNodeEntry(entry));
+#else
+            sTaxiPathNodesByPath[pathId][index++] = new TaxiPathNodeEntry(entry);
+#endif
 #endif
         }
         if (startNode >= nodeId)
             return 1;
         sTaxiPathSetBySource[startNode][nodeId - 1] = TaxiPathBySourceAndDestination(pathId, price);
         TaxiPathEntry* pathEntry = new TaxiPathEntry();
+#ifdef TRINITY
+        pathEntry->FromTaxiNode = startNode;
+        pathEntry->ToTaxiNode = nodeId - 1;
+        pathEntry->Cost = price;
+#else
         pathEntry->from = startNode;
         pathEntry->to = nodeId - 1;
-        pathEntry->ID = pathId;
         pathEntry->price = price;
+#endif
+        pathEntry->ID = pathId;
         sTaxiPathStore.SetEntry(pathId, pathEntry);
         Eluna::Push(L, pathId);
         return 1;
@@ -2287,7 +2446,7 @@ namespace LuaGlobalFunctions
      * @param uint8 slot : the slot the [Item] is in within the bag, you can get this with [Item:GetSlot]
      * @return bool isInventoryPos
      */
-    int IsInventoryPos(Eluna* /*E*/, lua_State* L)
+    int IsInventoryPos(lua_State* L)
     {
         uint8 bag = Eluna::CHECKVAL<uint8>(L, 1);
         uint8 slot = Eluna::CHECKVAL<uint8>(L, 2);
@@ -2305,7 +2464,7 @@ namespace LuaGlobalFunctions
      * @param uint8 slot : the slot the [Item] is in within the bag, you can get this with [Item:GetSlot]
      * @return bool isEquipmentPosition
      */
-    int IsEquipmentPos(Eluna* /*E*/, lua_State* L)
+    int IsEquipmentPos(lua_State* L)
     {
         uint8 bag = Eluna::CHECKVAL<uint8>(L, 1);
         uint8 slot = Eluna::CHECKVAL<uint8>(L, 2);
@@ -2323,7 +2482,7 @@ namespace LuaGlobalFunctions
      * @param uint8 slot : the slot the [Item] is in within the bag, you can get this with [Item:GetSlot]
      * @return bool isBankPosition
      */
-    int IsBankPos(Eluna* /*E*/, lua_State* L)
+    int IsBankPos(lua_State* L)
     {
         uint8 bag = Eluna::CHECKVAL<uint8>(L, 1);
         uint8 slot = Eluna::CHECKVAL<uint8>(L, 2);
@@ -2341,7 +2500,7 @@ namespace LuaGlobalFunctions
      * @param uint8 slot : the slot the [Item] is in within the bag, you can get this with [Item:GetSlot]
      * @return bool isBagPosition
      */
-    int IsBagPos(Eluna* /*E*/, lua_State* L)
+    int IsBagPos(lua_State* L)
     {
         uint8 bag = Eluna::CHECKVAL<uint8>(L, 1);
         uint8 slot = Eluna::CHECKVAL<uint8>(L, 2);
@@ -2351,11 +2510,25 @@ namespace LuaGlobalFunctions
     }
 
     /**
+     * Returns `true` if the event is currently active, otherwise `false`.
+     *
+     * @param uint16 eventId : the event id to check.
+     * @return bool isActive
+     */
+    int IsGameEventActive(lua_State* L)
+    {
+        uint16 eventId = Eluna::CHECKVAL<uint16>(L, 1);
+
+        Eluna::Push(L, eGameEventMgr->IsActiveEvent(eventId));
+        return 1;
+    }
+
+    /**
      * Returns the server's current time.
      *
      * @return uint32 currTime : the current time, in milliseconds
      */
-    int GetCurrTime(Eluna* /*E*/, lua_State* L)
+    int GetCurrTime(lua_State* L)
     {
         Eluna::Push(L, ElunaUtil::GetCurrTime());
         return 1;
@@ -2367,7 +2540,7 @@ namespace LuaGlobalFunctions
      * @param uint32 oldTime : an old timestamp, in milliseconds
      * @return uint32 timeDiff : the difference, in milliseconds
      */
-    int GetTimeDiff(Eluna* /*E*/, lua_State* L)
+    int GetTimeDiff(lua_State* L)
     {
         uint32 oldtimems = Eluna::CHECKVAL<uint32>(L, 1);
 
@@ -2392,7 +2565,7 @@ namespace LuaGlobalFunctions
      *
      * @param ...
      */
-    int PrintInfo(Eluna* /*E*/, lua_State* L)
+    int PrintInfo(lua_State* L)
     {
         ELUNA_LOG_INFO("%s", GetStackAsString(L).c_str());
         return 0;
@@ -2403,7 +2576,7 @@ namespace LuaGlobalFunctions
      *
      * @param ...
      */
-    int PrintError(Eluna* /*E*/, lua_State* L)
+    int PrintError(lua_State* L)
     {
         ELUNA_LOG_ERROR("%s", GetStackAsString(L).c_str());
         return 0;
@@ -2414,9 +2587,39 @@ namespace LuaGlobalFunctions
      *
      * @param ...
      */
-    int PrintDebug(Eluna* /*E*/, lua_State* L)
+    int PrintDebug(lua_State* L)
     {
         ELUNA_LOG_DEBUG("%s", GetStackAsString(L).c_str());
+        return 0;
+    }
+
+    /**
+    * Starts the event by eventId, if force is set, the event will force start regardless of previous event state.
+    *
+    * @param uint16 eventId : the event id to start.
+    * @param bool force = false : set `true` to force start the event.
+    */
+    int StartGameEvent(lua_State* L)
+    {
+        uint16 eventId = Eluna::CHECKVAL<uint16>(L, 1);
+        bool force = Eluna::CHECKVAL<bool>(L, 2, false);
+
+        eGameEventMgr->StartEvent(eventId, force);
+        return 0;
+    }
+
+    /**
+    * Stops the event by eventId, if force is set, the event will force stop regardless of previous event state.
+    *
+    * @param uint16 eventId : the event id to stop.
+    * @param bool force = false : set `true` to force stop the event.
+    */
+    int StopGameEvent(lua_State* L)
+    {
+        uint16 eventId = Eluna::CHECKVAL<uint16>(L, 1);
+        bool force = Eluna::CHECKVAL<bool>(L, 2, false);
+
+        eGameEventMgr->StopEvent(eventId, force);
         return 0;
     }
 
@@ -2434,7 +2637,7 @@ namespace LuaGlobalFunctions
      * @param string n_str
      * @return int64 value
      */
-    int CreateLongLong(Eluna* /*E*/, lua_State* L)
+    int CreateLongLong(lua_State* L)
     {
         long long init = 0;
         if (lua_isstring(L, 1))
@@ -2466,7 +2669,7 @@ namespace LuaGlobalFunctions
      * @param string n_str
      * @return uint64 value
      */
-    int CreateULongLong(Eluna* /*E*/, lua_State* L)
+    int CreateULongLong(lua_State* L)
     {
         unsigned long long init = 0;
         if (lua_isstring(L, 1))
@@ -2495,18 +2698,18 @@ namespace LuaGlobalFunctions
      * @proto (event_type)
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterBGEvent]
      */
-    int ClearBattleGroundEvents(Eluna* E, lua_State* L)
+    int ClearBattleGroundEvents(lua_State* L)
     {
         typedef EventKey<Hooks::BGEvents> Key;
 
         if (lua_isnoneornil(L, 1))
         {
-            E->BGEventBindings->Clear();
+            Eluna::GetEluna(L)->BGEventBindings->Clear();
         }
         else
         {
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 1);
-            E->BGEventBindings->Clear(Key((Hooks::BGEvents)event_type));
+            Eluna::GetEluna(L)->BGEventBindings->Clear(Key((Hooks::BGEvents)event_type));
         }
         return 0;
     }
@@ -2526,7 +2729,7 @@ namespace LuaGlobalFunctions
      * @param uint32 entry : the ID of one or more [Creature]s whose handlers will be cleared
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterCreatureEvent]
      */
-    int ClearCreatureEvents(Eluna* E, lua_State* L)
+    int ClearCreatureEvents(lua_State* L)
     {
         typedef EntryKey<Hooks::CreatureEvents> Key;
 
@@ -2534,6 +2737,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
 
+            Eluna* E = Eluna::GetEluna(L);
             for (uint32 i = 1; i < Hooks::CREATURE_EVENT_COUNT; ++i)
                 E->CreatureEventBindings->Clear(Key((Hooks::CreatureEvents)i, entry));
         }
@@ -2541,7 +2745,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 2);
-            E->CreatureEventBindings->Clear(Key((Hooks::CreatureEvents)event_type, entry));
+            Eluna::GetEluna(L)->CreatureEventBindings->Clear(Key((Hooks::CreatureEvents)event_type, entry));
         }
         return 0;
     }
@@ -2562,7 +2766,7 @@ namespace LuaGlobalFunctions
      * @param uint32 instance_id : the instance ID of a single [Creature] whose handlers will be cleared
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterCreatureEvent]
      */
-    int ClearUniqueCreatureEvents(Eluna* E, lua_State* L)
+    int ClearUniqueCreatureEvents(lua_State* L)
     {
         typedef UniqueObjectKey<Hooks::CreatureEvents> Key;
 
@@ -2571,6 +2775,7 @@ namespace LuaGlobalFunctions
             uint64 guid = Eluna::CHECKVAL<uint64>(L, 1);
             uint32 instanceId = Eluna::CHECKVAL<uint32>(L, 2);
 
+            Eluna* E = Eluna::GetEluna(L);
             for (uint32 i = 1; i < Hooks::CREATURE_EVENT_COUNT; ++i)
                 E->CreatureUniqueBindings->Clear(Key((Hooks::CreatureEvents)i, guid, instanceId));
         }
@@ -2579,7 +2784,7 @@ namespace LuaGlobalFunctions
             uint64 guid = Eluna::CHECKVAL<uint64>(L, 1);
             uint32 instanceId = Eluna::CHECKVAL<uint32>(L, 2);
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 3);
-            E->CreatureUniqueBindings->Clear(Key((Hooks::CreatureEvents)event_type, guid, instanceId));
+            Eluna::GetEluna(L)->CreatureUniqueBindings->Clear(Key((Hooks::CreatureEvents)event_type, guid, instanceId));
         }
         return 0;
     }
@@ -2599,7 +2804,7 @@ namespace LuaGlobalFunctions
      * @param uint32 entry : the ID of a [Creature] whose handlers will be cleared
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterCreatureGossipEvent]
      */
-    int ClearCreatureGossipEvents(Eluna* E, lua_State* L)
+    int ClearCreatureGossipEvents(lua_State* L)
     {
         typedef EntryKey<Hooks::GossipEvents> Key;
 
@@ -2607,6 +2812,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
 
+            Eluna* E = Eluna::GetEluna(L);
             for (uint32 i = 1; i < Hooks::GOSSIP_EVENT_COUNT; ++i)
                 E->CreatureGossipBindings->Clear(Key((Hooks::GossipEvents)i, entry));
         }
@@ -2614,7 +2820,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 2);
-            E->CreatureGossipBindings->Clear(Key((Hooks::GossipEvents)event_type, entry));
+            Eluna::GetEluna(L)->CreatureGossipBindings->Clear(Key((Hooks::GossipEvents)event_type, entry));
         }
         return 0;
     }
@@ -2634,7 +2840,7 @@ namespace LuaGlobalFunctions
      * @param uint32 entry : the ID of a [GameObject] whose handlers will be cleared
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterGameObjectEvent]
      */
-    int ClearGameObjectEvents(Eluna* E, lua_State* L)
+    int ClearGameObjectEvents(lua_State* L)
     {
         typedef EntryKey<Hooks::GameObjectEvents> Key;
 
@@ -2642,6 +2848,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
 
+            Eluna* E = Eluna::GetEluna(L);
             for (uint32 i = 1; i < Hooks::GAMEOBJECT_EVENT_COUNT; ++i)
                 E->GameObjectEventBindings->Clear(Key((Hooks::GameObjectEvents)i, entry));
         }
@@ -2649,7 +2856,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 2);
-            E->GameObjectEventBindings->Clear(Key((Hooks::GameObjectEvents)event_type, entry));
+            Eluna::GetEluna(L)->GameObjectEventBindings->Clear(Key((Hooks::GameObjectEvents)event_type, entry));
         }
         return 0;
     }
@@ -2669,7 +2876,7 @@ namespace LuaGlobalFunctions
      * @param uint32 entry : the ID of a [GameObject] whose handlers will be cleared
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterGameObjectGossipEvent]
      */
-    int ClearGameObjectGossipEvents(Eluna* E, lua_State* L)
+    int ClearGameObjectGossipEvents(lua_State* L)
     {
         typedef EntryKey<Hooks::GossipEvents> Key;
 
@@ -2677,6 +2884,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
 
+            Eluna* E = Eluna::GetEluna(L);
             for (uint32 i = 1; i < Hooks::GOSSIP_EVENT_COUNT; ++i)
                 E->GameObjectGossipBindings->Clear(Key((Hooks::GossipEvents)i, entry));
         }
@@ -2684,7 +2892,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 2);
-            E->GameObjectGossipBindings->Clear(Key((Hooks::GossipEvents)event_type, entry));
+            Eluna::GetEluna(L)->GameObjectGossipBindings->Clear(Key((Hooks::GossipEvents)event_type, entry));
         }
         return 0;
     }
@@ -2700,18 +2908,18 @@ namespace LuaGlobalFunctions
      * @proto (event_type)
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterGroupEvent]
      */
-    int ClearGroupEvents(Eluna* E, lua_State* L)
+    int ClearGroupEvents(lua_State* L)
     {
         typedef EventKey<Hooks::GroupEvents> Key;
 
         if (lua_isnoneornil(L, 1))
         {
-            E->GroupEventBindings->Clear();
+            Eluna::GetEluna(L)->GroupEventBindings->Clear();
         }
         else
         {
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 1);
-            E->GroupEventBindings->Clear(Key((Hooks::GroupEvents)event_type));
+            Eluna::GetEluna(L)->GroupEventBindings->Clear(Key((Hooks::GroupEvents)event_type));
         }
         return 0;
     }
@@ -2727,18 +2935,18 @@ namespace LuaGlobalFunctions
      * @proto (event_type)
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterGuildEvent]
      */
-    int ClearGuildEvents(Eluna* E, lua_State* L)
+    int ClearGuildEvents(lua_State* L)
     {
         typedef EventKey<Hooks::GuildEvents> Key;
 
         if (lua_isnoneornil(L, 1))
         {
-            E->GuildEventBindings->Clear();
+            Eluna::GetEluna(L)->GuildEventBindings->Clear();
         }
         else
         {
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 1);
-            E->GuildEventBindings->Clear(Key((Hooks::GuildEvents)event_type));
+            Eluna::GetEluna(L)->GuildEventBindings->Clear(Key((Hooks::GuildEvents)event_type));
         }
         return 0;
     }
@@ -2758,7 +2966,7 @@ namespace LuaGlobalFunctions
      * @param uint32 entry : the ID of an [Item] whose handlers will be cleared
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterItemEvent]
      */
-    int ClearItemEvents(Eluna* E, lua_State* L)
+    int ClearItemEvents(lua_State* L)
     {
         typedef EntryKey<Hooks::ItemEvents> Key;
 
@@ -2766,6 +2974,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
 
+            Eluna* E = Eluna::GetEluna(L);
             for (uint32 i = 1; i < Hooks::ITEM_EVENT_COUNT; ++i)
                 E->ItemEventBindings->Clear(Key((Hooks::ItemEvents)i, entry));
         }
@@ -2773,7 +2982,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 2);
-            E->ItemEventBindings->Clear(Key((Hooks::ItemEvents)event_type, entry));
+            Eluna::GetEluna(L)->ItemEventBindings->Clear(Key((Hooks::ItemEvents)event_type, entry));
         }
         return 0;
     }
@@ -2793,7 +3002,7 @@ namespace LuaGlobalFunctions
      * @param uint32 entry : the ID of an [Item] whose handlers will be cleared
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterItemGossipEvent]
      */
-    int ClearItemGossipEvents(Eluna* E, lua_State* L)
+    int ClearItemGossipEvents(lua_State* L)
     {
         typedef EntryKey<Hooks::GossipEvents> Key;
 
@@ -2801,6 +3010,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
 
+            Eluna* E = Eluna::GetEluna(L);
             for (uint32 i = 1; i < Hooks::GOSSIP_EVENT_COUNT; ++i)
                 E->ItemGossipBindings->Clear(Key((Hooks::GossipEvents)i, entry));
         }
@@ -2808,7 +3018,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 2);
-            E->ItemGossipBindings->Clear(Key((Hooks::GossipEvents)event_type, entry));
+            Eluna::GetEluna(L)->ItemGossipBindings->Clear(Key((Hooks::GossipEvents)event_type, entry));
         }
         return 0;
     }
@@ -2825,7 +3035,7 @@ namespace LuaGlobalFunctions
      * @param uint32 opcode : the type of [WorldPacket] whose handlers will be cleared
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterPacketEvent]
      */
-    int ClearPacketEvents(Eluna* E, lua_State* L)
+    int ClearPacketEvents(lua_State* L)
     {
         typedef EntryKey<Hooks::PacketEvents> Key;
 
@@ -2833,6 +3043,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
 
+            Eluna* E = Eluna::GetEluna(L);
             for (uint32 i = 1; i < Hooks::PACKET_EVENT_COUNT; ++i)
                 E->PacketEventBindings->Clear(Key((Hooks::PacketEvents)i, entry));
         }
@@ -2840,7 +3051,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 2);
-            E->PacketEventBindings->Clear(Key((Hooks::PacketEvents)event_type, entry));
+            Eluna::GetEluna(L)->PacketEventBindings->Clear(Key((Hooks::PacketEvents)event_type, entry));
         }
         return 0;
     }
@@ -2856,18 +3067,18 @@ namespace LuaGlobalFunctions
      * @proto (event_type)
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterPlayerEvent]
      */
-    int ClearPlayerEvents(Eluna* E, lua_State* L)
+    int ClearPlayerEvents(lua_State* L)
     {
         typedef EventKey<Hooks::PlayerEvents> Key;
 
         if (lua_isnoneornil(L, 1))
         {
-            E->PlayerEventBindings->Clear();
+            Eluna::GetEluna(L)->PlayerEventBindings->Clear();
         }
         else
         {
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 1);
-            E->PlayerEventBindings->Clear(Key((Hooks::PlayerEvents)event_type));
+            Eluna::GetEluna(L)->PlayerEventBindings->Clear(Key((Hooks::PlayerEvents)event_type));
         }
         return 0;
     }
@@ -2884,7 +3095,7 @@ namespace LuaGlobalFunctions
      * @param uint32 entry : the low GUID of a [Player] whose handlers will be cleared
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterPlayerGossipEvent]
      */
-    int ClearPlayerGossipEvents(Eluna* E, lua_State* L)
+    int ClearPlayerGossipEvents(lua_State* L)
     {
         typedef EntryKey<Hooks::GossipEvents> Key;
 
@@ -2892,6 +3103,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
 
+            Eluna* E = Eluna::GetEluna(L);
             for (uint32 i = 1; i < Hooks::GOSSIP_EVENT_COUNT; ++i)
                 E->PlayerGossipBindings->Clear(Key((Hooks::GossipEvents)i, entry));
         }
@@ -2899,7 +3111,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 2);
-            E->PlayerGossipBindings->Clear(Key((Hooks::GossipEvents)event_type, entry));
+            Eluna::GetEluna(L)->PlayerGossipBindings->Clear(Key((Hooks::GossipEvents)event_type, entry));
         }
         return 0;
     }
@@ -2915,18 +3127,18 @@ namespace LuaGlobalFunctions
      * @proto (event_type)
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterServerEvent]
      */
-    int ClearServerEvents(Eluna* E, lua_State* L)
+    int ClearServerEvents(lua_State* L)
     {
         typedef EventKey<Hooks::ServerEvents> Key;
 
         if (lua_isnoneornil(L, 1))
         {
-            E->ServerEventBindings->Clear();
+            Eluna::GetEluna(L)->ServerEventBindings->Clear();
         }
         else
         {
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 1);
-            E->ServerEventBindings->Clear(Key((Hooks::ServerEvents)event_type));
+            Eluna::GetEluna(L)->ServerEventBindings->Clear(Key((Hooks::ServerEvents)event_type));
         }
         return 0;
     }
@@ -2943,7 +3155,7 @@ namespace LuaGlobalFunctions
      * @param uint32 map_id : the ID of a [Map]
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterPlayerGossipEvent]
      */
-    int ClearMapEvents(Eluna* E, lua_State* L)
+    int ClearMapEvents(lua_State* L)
     {
         typedef EntryKey<Hooks::InstanceEvents> Key;
 
@@ -2951,6 +3163,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
 
+            Eluna* E = Eluna::GetEluna(L);
             for (uint32 i = 1; i < Hooks::INSTANCE_EVENT_COUNT; ++i)
                 E->MapEventBindings->Clear(Key((Hooks::InstanceEvents)i, entry));
         }
@@ -2958,7 +3171,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 2);
-            E->MapEventBindings->Clear(Key((Hooks::InstanceEvents)event_type, entry));
+            Eluna::GetEluna(L)->MapEventBindings->Clear(Key((Hooks::InstanceEvents)event_type, entry));
         }
 
         return 0;
@@ -2976,7 +3189,7 @@ namespace LuaGlobalFunctions
      * @param uint32 entry : the ID of an instance of a [Map]
      * @param uint32 event_type : the event whose handlers will be cleared, see [Global:RegisterInstanceEvent]
      */
-    int ClearInstanceEvents(Eluna* E, lua_State* L)
+    int ClearInstanceEvents(lua_State* L)
     {
         typedef EntryKey<Hooks::InstanceEvents> Key;
 
@@ -2984,6 +3197,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
 
+            Eluna* E = Eluna::GetEluna(L);
             for (uint32 i = 1; i < Hooks::INSTANCE_EVENT_COUNT; ++i)
                 E->InstanceEventBindings->Clear(Key((Hooks::InstanceEvents)i, entry));
         }
@@ -2991,7 +3205,7 @@ namespace LuaGlobalFunctions
         {
             uint32 entry = Eluna::CHECKVAL<uint32>(L, 1);
             uint32 event_type = Eluna::CHECKVAL<uint32>(L, 2);
-            E->InstanceEventBindings->Clear(Key((Hooks::InstanceEvents)event_type, entry));
+            Eluna::GetEluna(L)->InstanceEventBindings->Clear(Key((Hooks::InstanceEvents)event_type, entry));
         }
 
         return 0;
